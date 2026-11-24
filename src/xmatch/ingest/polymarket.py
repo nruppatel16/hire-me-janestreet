@@ -98,11 +98,13 @@ class PolymarketSource:
         return normalize(raw, self.cfg)
 
     def reference_count(self) -> int:
-        """Independent enumeration for Gate 1 (D-006): open markets nested in GET /events/keyset."""
+        """Independent enumeration for Gate 1 (D-006): open markets nested in GET /events/keyset.
+        Open = closed is false AND active is true. Events also nest inactive placeholder outcomes, which the
+        markets listing never returns (D-014)."""
         ids: set[str] = set()
         for page in self._paginate("/events/keyset", "events", self.cfg.events_page_limit):
             for ev in page:
                 for m in ev.get("markets") or []:
-                    if m.get("closed") is False:
+                    if m.get("closed") is False and m.get("active") is True:
                         ids.add(str(m["id"]))
         return len(ids)

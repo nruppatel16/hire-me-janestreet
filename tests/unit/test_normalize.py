@@ -121,3 +121,15 @@ def test_kalshi_source_envelope_carries_event_context():
     assert m.title == "Prairie View A&M at Iowa — Prairie View A&M wins"
     assert m.description.startswith("Nov 28")
     assert src.normalize({"market": raw, "event": None}).title == raw["title"]
+
+
+def test_polymarket_reference_count_requires_open_and_active():
+    class FakeClient:
+        def get_json(self, path, params=None):
+            return {"events": [{"markets": [
+                {"id": 1, "closed": False, "active": True},
+                {"id": 2, "closed": False, "active": False},   # inactive placeholder outcome
+                {"id": 3, "closed": True, "active": True},
+                {"id": 1, "closed": False, "active": True},    # same market nested twice
+            ]}], "next_cursor": None}
+    assert polymarket.PolymarketSource(FakeClient(), PCFG).reference_count() == 1

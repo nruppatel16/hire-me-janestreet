@@ -67,4 +67,10 @@ A running log. Each entry records the decision, the alternatives, and the reason
 ### D-013: Polymarket "open" means `closed=false`, including markets past `endDate` (2026-11-24)
 - **Decision:** keep every `closed=false` market with status `open`, even when `endDate` has passed. In the first run, about 32k of 124k sampled markets were past their end date and awaiting resolution.
 - **Alternatives:** treat past-`endDate` markets as closed during normalization.
-- **Reason:** it matches the platform's own definition and the Gate 1 reference count. Excluding these markets from matching is an M2 retrieval filter (`close_time_utc > now()`), not an ingest rewrite. Flagged in the Gate 1 report.
+- **Reason:** it matches the platform's own definition and the Gate 1 reference count.
+- **Update 2026-11-24 (user decision):** no end-date filter downstream either. The user said "we will be executing in the present so end date shouldn't matter". A market counts while the platform lists it as open.
+
+### D-014: Polymarket reference count requires `active=true` (2026-11-24)
+- **Decision:** in the Gate 1 reference enumeration, a Polymarket market counts as open when `closed == false AND active == true`.
+- **Alternatives:** `closed == false` only (gap 14.90%); ingest the inactive markets through the events endpoint.
+- **Reason:** open events nest about 26.7k inactive placeholder outcomes (for example "Person AC") and archived markets. The markets listing never returns them, and they can't be traded, so they can never be an arbitrage. With matching definitions the two listings agree within 0.06%. Chosen by the user (option A).
