@@ -64,9 +64,12 @@ class KalshiSource:
         self.client, self.cfg = client, cfg
         self.events: dict[str, dict[str, Any]] = {}
 
+    # Raw payloads are envelopes of two untouched API objects, {"market": ..., "event": ...}, because a normalized
+    # Kalshi row depends on both (event title, D-008). This keeps every row traceable to exactly what produced it.
+
     @staticmethod
     def native_id(raw: dict[str, Any]) -> str:
-        return raw["ticker"]
+        return raw["market"]["ticker"]
 
     def _paginate(self, path: str, key: str, params: dict[str, Any]) -> Iterator[list[dict]]:
         cursor, seen_cursors = "", set()
@@ -101,10 +104,14 @@ class KalshiSource:
         params = {"status": "open", "limit": self.cfg.markets_page_limit, "mve_filter": self.cfg.mve_filter}
         for page in self._paginate("/markets", "markets", params):
             self._fill_missing_events(page)
-            yield page
+            yield [{"market": m, "event": self._event_without_markets(m)} for m in page]
+
+    def _event_without_markets(self, m: dict[str, Any]) -> dict[str, Any] | None:
+        ev = self.events.get(m.get("event_ticker") or "")
+        return {k: v for k, v in ev.items() if k != "markets"} if ev else None
 
     def normalize(self, raw: dict[str, Any]) -> NormalizedMarket:
-        return normalize(raw, self.events.get(raw.get("event_ticker") or ""), self.cfg)
+        return normalize(raw["market"], raw.get("event"), self.cfg)
 
     def reference_count(self) -> int:
         """Independent enumeration for Gate 1 (D-006): open markets nested in GET /events."""

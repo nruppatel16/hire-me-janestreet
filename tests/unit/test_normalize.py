@@ -110,3 +110,14 @@ def test_parse_utc_refuses_naive_and_garbage():
     assert parse_utc("2026-11-26T19:45:00Z").hour == 19
     assert parse_utc("2026-11-26T19:45:00") is None
     assert parse_utc("garbage") is None
+
+
+def test_kalshi_source_envelope_carries_event_context():
+    src = kalshi.KalshiSource(client=None, cfg=KCFG)
+    raw = kalshi_raw()[2]
+    env = {"market": raw, "event": {"title": "Prairie View A&M at Iowa", "sub_title": "Nov 28"}}
+    assert src.native_id(env) == raw["ticker"]
+    m = src.normalize(env)
+    assert m.title == "Prairie View A&M at Iowa — Prairie View A&M wins"
+    assert m.description.startswith("Nov 28")
+    assert src.normalize({"market": raw, "event": None}).title == raw["title"]
