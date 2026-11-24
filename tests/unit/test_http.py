@@ -1,0 +1,59 @@
+import httpx
+import pytest
+
+from xmatch.config import HttpCfg
+from xmatch.http import FetchError, ReadOnlyClient
+
+CFG = HttpCfg(timeout_s=5, max_retries=3, backoff_base_s=1, backoff_max_s=8, user_agent="t")
+
+
+def make(handler, sleeps, rps=1000.0):
+    return ReadOnlyClient("https://x.test", CFG, rps, transport=httpx.MockTransport(handler),
+                          sleep=sleeps.append)
+
+
+def test_retries_429_and_5xx_then_succeeds():
+    seq = iter([429, 503, 200])
+    def handler(req):
+        code = next(seq)
+        return httpx.Response(code, json={"ok": True} if code == 200 else {})
+    sleeps = []
+    c = make(handler, sleeps)
+    assert c.get_json("/m") == {"ok": True}
+    assert c.request_count == 3
+    backoffs = [s for s in sleeps if s >= 0.5]
+    assert len(backoffs) == 2 and backoffs[1] >= 1.0  # exponential: attempt 1 in [1,2]
+
+
+def test_gives_up_after_max_retries():
+    sleeps = []
+    c = make(lambda req: httpx.Response(500), sleeps)
+    with pytest.raises(FetchError) as ei:
+        c.get_json("/m")
+    assert ei.value.attempts == 4 and ei.value.status == 500
+
+
+def test_non_retryable_status_fails_fast():
+    c = make(lambda req: httpx.Response(404, text="nope"), [])
+    with pytest.raises(FetchError) as ei:
+        c.get_json("/m")
+    assert ei.value.attempts == 1
+
+
+def test_network_errors_are_retried():
+    calls = {"n": 0}
+    def handler(req):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("boom")
+        return httpx.Response(200, json=[1])
+    assert make(handler, []).get_json("/m") == [1]
+
+
+def test_backoff_is_capped():
+    c = make(lambda r: httpx.Response(200, json={}), [])
+    assert all(c._backoff(a) <= CFG.backoff_max_s for a in range(20))
+
+
+def test_client_is_get_only():
+    assert not any(hasattr(ReadOnlyClient, m) for m in ("post", "put", "delete", "patch"))
