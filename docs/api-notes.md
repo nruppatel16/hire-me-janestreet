@@ -76,10 +76,17 @@ Source: https://docs.polymarket.com/api-reference/markets/list-markets
 Source: https://docs.polymarket.com/market-data/discover-markets.md
 - **Shape:** returns `{"events": [...], "next_cursor": "..."}`.
 - **Nested closed markets (observed):** an open event's nested `markets` includes closed markets. Counting from events therefore needs a filter on `closed == false`.
+- **Nested inactive markets (observed 2026-11-24, Gate 1):** open events also nest about 26.7k markets with `closed=false` and `active=false`. These are inactive outcome slots in multi-outcome events (for example placeholder candidates "Person AC", "Person AD" in "Democratic Presidential Nominee 2028") plus archived markets. `GET /markets/keyset?closed=false` does **not** return them: 0 of 151,964 stored markets are inactive. Counts from the two endpoints agree only when the events count also requires `active == true` (0.06% gap). Not documented.
+- **Id filter (observed):** `GET /markets?id=<a>&id=<b>` returned an empty array for those inactive ids, even with `closed=any`. Unexplained.
 
 ### Rate limits
 - **UNVERIFIED:** I found no documented Gamma rate-limit numbers. The only related page I found (https://docs.polymarket.com/programs/builders/tiers.md) says only "Standard", with no figures. Config uses 2 req/s, plus backoff on 429.
 - **Caching:** observed `cache-control: public, max-age=300` on events/keyset.
+
+### Measured counts (2026-11-24)
+- Kalshi open markets, combo markets excluded: 174,975. 7,760 pass the $10K gate (first run). Yash's June 2026 figure was ~44,400.
+- Polymarket `closed=false` markets: 151,964. About 32k are past `endDate` and awaiting resolution, and 228 have no `endDate`. Yash's figure was ~45,000.
+- A full Polymarket ingest takes about 13 minutes at the unverified 2 req/s (100 rows per page).
 
 ### Counts
 - Neither platform exposes a total count. Gate 1 compares the primary listing against an independent second enumeration (see DECISIONS D-006).
