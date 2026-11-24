@@ -1,0 +1,36 @@
+# xmatch configuration. Secrets never go here; they come from the environment (.env).
+# Values marked TARGET are PRD placeholders, to be revised once baselines exist.
+# Values marked UNVERIFIED are conservative guesses where the platform docs give no number
+# (see docs/api-notes.md).
+
+[http]
+timeout_s = 30
+max_retries = 6            # attempts after the first, for 429 / 5xx / network errors
+backoff_base_s = 1.0       # exponential: base * 2^attempt, with full jitter
+backoff_max_s = 60
+user_agent = "xmatch-readonly/0.1"
+
+[kalshi]
+base_url = "https://external-api.kalshi.com/trade-api/v2"
+markets_page_limit = 1000   # documented max for GET /markets
+events_page_limit = 200     # documented max for GET /events
+mve_filter = "exclude"      # multivariate combo markets cannot match single Polymarket markets
+requests_per_second = 5     # UNVERIFIED: unauthenticated limit is not documented
+source_tz = "UTC"           # API timestamps are RFC3339 with Z
+
+[polymarket]
+base_url = "https://gamma-api.polymarket.com"
+markets_page_limit = 100    # keyset endpoint silently caps at 100 (observed 2026-11-24)
+events_page_limit = 100
+requests_per_second = 2     # UNVERIFIED: no documented Gamma rate limit found
+source_tz = "UTC"
+
+[volume_gate]
+min_volume_usd = 10000      # TARGET (PRD DP-8). Markets below are flagged, never deleted.
+
+[ingest]
+raw_payload_keep_runs = 5   # raw payloads from older runs are pruned unless a market still points at them
+hash_version = 1            # bump when the content_hash recipe changes
+
+[gate1]
+count_tolerance_pct = 1.0   # TARGET (PRD DP-1)
