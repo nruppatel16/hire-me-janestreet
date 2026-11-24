@@ -53,3 +53,18 @@ A running log. Each entry records the decision, the alternatives, and the reason
 - **Decision:** raw payloads and market upserts for one page commit in one transaction. The `ingest_runs` row and error log commit separately, so they survive a failure. The `listed` sweep and payload pruning run only after a successful run.
 - **Alternatives:** the whole run in one transaction.
 - **Reason:** a single transaction would also roll back the raw payloads and error context needed to debug a failure. Per-page commits never leave a half-written row. Because upserts are idempotent, a failed run is fully repaired by the next successful one.
+
+### D-011: Kalshi raw payload is a market+event envelope (2026-11-24)
+- **Decision:** each Kalshi raw payload row stores `{"market": <untouched market>, "event": <untouched event, nested markets removed>}`.
+- **Alternatives:** store only the market object; store events in a separate table.
+- **Reason:** the normalized title depends on the event (D-008). A market-only payload could not reproduce its row, which breaks DP-6 traceability. The envelope keeps both objects unmodified and lets Gate 1 replay a run exactly.
+
+### D-012: Gate 1 proves idempotency by replay, and reports the live delta (2026-11-24)
+- **Decision:** the replay check re-ingests the stored raw payloads of the latest run, and the markets fingerprint must be byte-identical. The count delta between two consecutive live runs is reported, along with how many new markets explain it.
+- **Alternatives:** require two live runs to give exactly equal counts.
+- **Reason:** both platforms list new markets every few minutes, so two live runs can't be expected to match exactly. Replay isolates the pipeline's own idempotency from market churn.
+
+### D-013: Polymarket "open" means `closed=false`, including markets past `endDate` (2026-11-24)
+- **Decision:** keep every `closed=false` market with status `open`, even when `endDate` has passed. In the first run, about 32k of 124k sampled markets were past their end date and awaiting resolution.
+- **Alternatives:** treat past-`endDate` markets as closed during normalization.
+- **Reason:** it matches the platform's own definition and the Gate 1 reference count. Excluding these markets from matching is an M2 retrieval filter (`close_time_utc > now()`), not an ingest rewrite. Flagged in the Gate 1 report.
