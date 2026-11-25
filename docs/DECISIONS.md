@@ -133,3 +133,11 @@ A running log. Each entry records the decision, the alternatives, and the reason
 - **Caveats:**
   - This deliberately departs from the Phase 1 "no cloud deploy" rule, at the user's request.
   - On the Hobby plan, production URLs are public; password protection is a paid feature. The data is public market data.
+
+### D-022: Gemini free tier can't do the first full embed (open, 2026-11-24)
+- **Finding:** the free tier allows 1,000 embedded texts per day per model. The first full embed needs 13,633, which would take 14 days. Steady state afterward is only new or changed markets, probably a few hundred a day.
+- **Options:**
+  - Enable billing on the Google project (Tier 1). The whole embed is about 470k tokens × $0.20/1M, roughly $0.10.
+  - A local open embedding model behind the same `Embedder` interface: free and unlimited, but a large new dependency (torch).
+  - Wait 14 days.
+- **Status:** waiting on the user's choice.

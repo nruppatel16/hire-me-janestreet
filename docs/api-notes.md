@@ -113,6 +113,7 @@ Checked 2026-11-24.
 
 ### Rate limits (observed on this key)
 - **Embedding:** about 100 embedded texts per minute. A second batch of 100 within a minute returns 429 "You exceeded your current quota". After roughly a minute it succeeds again. The docs only show tier limits inside AI Studio, behind sign-in.
+- **Daily embedding cap (observed 2026-11-24):** the free tier has a **daily** cap of 1,000 embed requests per model, and each text in a batch counts as one request. The 429 names the quota: `embed_content_free_tier_requests, limit: 1000, model: gemini-embedding-2`. It resets at midnight Pacific (rate-limits docs).
 - **Text models:** limits are not stated in the public docs.
 
 ### Pricing (docs)

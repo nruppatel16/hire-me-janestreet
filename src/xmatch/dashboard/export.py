@@ -43,8 +43,10 @@ def _dump(path: Path, data: Any) -> int:
 
 def export_site(s: Settings, out: Path, max_pairs: int = 3000) -> dict[str, Any]:
     api = Api(s)
-    if out.exists():
-        shutil.rmtree(out)
+    if out.exists():  # clear the old snapshot but keep Vercel's project link (.vercel/)
+        for child in out.iterdir():
+            if child.name != ".vercel":
+                shutil.rmtree(child) if child.is_dir() else child.unlink()
     data = out / "data"
     sizes: dict[str, int] = {}
 
