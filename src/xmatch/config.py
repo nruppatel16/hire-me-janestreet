@@ -53,6 +53,28 @@ class Gate1Cfg(BaseModel):
     count_tolerance_pct: float
 
 
+class ProviderCfg(BaseModel):
+    base_url: str
+    api_key_env: str
+    requests_per_second: float
+
+
+class EmbeddingsCfg(BaseModel):
+    provider: str
+    model: str
+    dims: int
+    batch_size: int
+    text_version: int
+    price_per_mtok_usd: float
+    price_version: str
+
+
+class RetrievalCfg(BaseModel):
+    top_k: int
+    similarity_floor: float
+    block_rows: int
+
+
 class Settings(BaseModel):
     http: HttpCfg
     kalshi: KalshiCfg
@@ -60,7 +82,17 @@ class Settings(BaseModel):
     volume_gate: VolumeGateCfg
     ingest: IngestCfg
     gate1: Gate1Cfg
+    providers: dict[str, ProviderCfg]
+    embeddings: EmbeddingsCfg
+    retrieval: RetrievalCfg
     database_url: str
+
+    def api_key(self, provider: str) -> str:
+        env = self.providers[provider].api_key_env
+        key = os.environ.get(env, "").strip()
+        if not key:
+            raise RuntimeError(f"{env} is not set (put it in .env)")
+        return key
 
 
 def load_settings(path: Path | None = None, database_url: str | None = None) -> Settings:

@@ -24,8 +24,8 @@ class FetchError(RuntimeError):
         self.attempts = attempts
 
 
-class ReadOnlyClient:
-    """Wraps httpx.Client. Exposes only `get_json`; there is deliberately no POST/PUT/DELETE."""
+class _RetryingClient:
+    """Shared rate limit + retry machinery. Subclasses decide which HTTP methods are exposed."""
 
     def __init__(
         self,
@@ -36,11 +36,12 @@ class ReadOnlyClient:
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         on_retry: Callable[[str, int, str], None] | None = None,
+        headers: dict[str, str] | None = None,
     ):
         self._client = httpx.Client(
             base_url=base_url,
             timeout=cfg.timeout_s,
-            headers={"User-Agent": cfg.user_agent, "Accept": "application/json"},
+            headers={"User-Agent": cfg.user_agent, "Accept": "application/json", **(headers or {})},
             transport=transport,
         )
         self._cfg = cfg
@@ -61,14 +62,14 @@ class ReadOnlyClient:
         cap = min(self._cfg.backoff_max_s, self._cfg.backoff_base_s * (2**attempt))
         return random.uniform(cap / 2, cap)  # jitter, never zero
 
-    def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
+    def _request_json(self, method: str, path: str, **kw: Any) -> Any:
         last_err = ""
         status: int | None = None
         for attempt in range(self._cfg.max_retries + 1):
             self._throttle()
             self.request_count += 1
             try:
-                resp = self._client.get(path, params=params)
+                resp = self._client.request(method, path, **kw)
             except httpx.TransportError as e:
                 last_err, status = f"{type(e).__name__}: {e}", None
             else:
@@ -85,7 +86,7 @@ class ReadOnlyClient:
         raise FetchError(f"gave up after {self._cfg.max_retries + 1} attempts: {last_err}",
                          url=path, status=status, attempts=self._cfg.max_retries + 1)
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: D401
         self._client.close()
 
     def __enter__(self):
@@ -93,3 +94,19 @@ class ReadOnlyClient:
 
     def __exit__(self, *exc):
         self.close()
+
+
+class ReadOnlyClient(_RetryingClient):
+    """Client for the prediction-market platforms. Exposes only GET: there is deliberately no POST/PUT/DELETE,
+    so no code path can submit anything to Kalshi or Polymarket."""
+
+    def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        return self._request_json("GET", path, params=params)
+
+
+class ProviderClient(_RetryingClient):
+    """Client for AI providers (embeddings / LLM). POST is needed for inference; it is never pointed at a
+    trading platform."""
+
+    def post_json(self, path: str, body: dict[str, Any]) -> Any:
+        return self._request_json("POST", path, json=body)
