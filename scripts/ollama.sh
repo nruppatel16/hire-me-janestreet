@@ -11,6 +11,8 @@ case "${1:-start}" in
     for _ in $(seq 1 40); do curl -s -m 1 "http://$OLLAMA_HOST/api/version" >/dev/null && break; sleep 0.25; done
     ollama list | grep -q qwen3-embedding:0.6b || ollama pull qwen3-embedding:0.6b
     echo "ollama up on $OLLAMA_HOST" ;;
-  stop) pkill -f "ollama serve" && echo stopped ;;
+  stop)  # only the project server on this port, never a personal Ollama
+    pid=$(lsof -ti "tcp:${OLLAMA_HOST##*:}" -sTCP:LISTEN || true)
+    if [ -n "$pid" ]; then kill -TERM $pid && echo "stopped ollama on $OLLAMA_HOST"; else echo "not running"; fi ;;
   *) echo "usage: $0 start|stop"; exit 1 ;;
 esac
