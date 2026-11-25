@@ -146,3 +146,18 @@ def test_matchable_constraint_enforced_in_db(cfg):
     with pytest.raises(psycopg.errors.CheckViolation):
         with psycopg.connect(cfg.database_url) as c:
             c.execute("UPDATE markets SET resolution_text = NULL")
+
+
+def test_abandoned_running_run_is_marked_failed(cfg):
+    with psycopg.connect(cfg.database_url) as c:
+        c.execute("INSERT INTO ingest_runs (job, platform, started_at) VALUES ('ingest','kalshi', now() - interval '1 day')")
+        c.execute("INSERT INTO ingest_runs (job, platform) VALUES ('ingest','kalshi')")  # recent: maybe still alive
+    IngestRun(FakeSource([[mk("A")]]), cfg).run()
+    rows = q(cfg.database_url, "SELECT status FROM ingest_runs ORDER BY run_id")
+    assert [r["status"] for r in rows] == ["failed", "running", "succeeded"]
+    assert "abandoned" in q(cfg.database_url, "SELECT message FROM ingest_errors WHERE run_id=1")[0]["message"]
+
+
+def test_prune_does_not_seq_scan_markets_per_row(cfg):
+    plan = q(cfg.database_url, "EXPLAIN SELECT 1 FROM markets WHERE raw_payload_id = 42")
+    assert "markets_raw_payload_id" in " ".join(r["QUERY PLAN"] for r in plan)

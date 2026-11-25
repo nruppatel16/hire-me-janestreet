@@ -31,6 +31,7 @@ min_volume_usd = 10000      # TARGET (PRD DP-8). Markets below are flagged, neve
 [ingest]
 raw_payload_keep_runs = 5   # raw payloads from older runs are pruned unless a market still points at them
 hash_version = 1            # bump when the content_hash recipe changes
+stale_run_minutes = 120     # a 'running' run older than this (process killed) is marked failed at the next start
 
 [gate1]
 count_tolerance_pct = 1.0   # TARGET (PRD DP-1)

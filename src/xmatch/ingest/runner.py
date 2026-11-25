@@ -106,7 +106,24 @@ class IngestRun:
 
     # ---------- run log (autocommit) ----------
 
+    def _fail_abandoned(self, log_conn: psycopg.Connection) -> None:
+        """Runs left 'running' by a hard-killed process can never finish themselves; close them out."""
+        rows = log_conn.execute(
+            """UPDATE ingest_runs SET status = 'failed', ended_at = now(), error_count = error_count + 1
+               WHERE platform = %s AND status = 'running' AND started_at < now() - make_interval(mins => %s)
+               RETURNING run_id""",
+            (self.platform, self.s.ingest.stale_run_minutes),
+        ).fetchall()
+        for r in rows:
+            log_conn.execute(
+                "INSERT INTO ingest_errors (run_id, platform, stage, message) VALUES (%s, %s, 'run', %s)",
+                (r["run_id"], self.platform,
+                 f"abandoned: still 'running' after {self.s.ingest.stale_run_minutes} min (process killed?)"),
+            )
+            log.warning("%s run %s marked failed (abandoned)", self.platform, r["run_id"])
+
     def _start(self, log_conn: psycopg.Connection) -> None:
+        self._fail_abandoned(log_conn)
         snapshot = {
             "volume_gate": self.s.volume_gate.model_dump(),
             "ingest": self.s.ingest.model_dump(),

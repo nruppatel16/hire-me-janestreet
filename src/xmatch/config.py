@@ -46,6 +46,7 @@ class VolumeGateCfg(BaseModel):
 class IngestCfg(BaseModel):
     raw_payload_keep_runs: int
     hash_version: int
+    stale_run_minutes: int
 
 
 class Gate1Cfg(BaseModel):
