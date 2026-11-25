@@ -7,3 +7,5 @@ __pycache__/
 .pglog
 *.egg-info/
 dist/
+site/
+.vercel/

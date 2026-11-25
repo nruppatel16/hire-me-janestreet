@@ -112,3 +112,24 @@ A running log. Each entry records the decision, the alternatives, and the reason
 - **Decision:** build M2 → M3 → M4 back to back, stopping at each gate for review. Paper trading arrives in M4 as a simulated ledger: both legs at the ask, size limited by book depth, net of fees, held to resolution. No order code exists anywhere.
 - **Alternatives:** a separate plan approval for each milestone.
 - **Reason:** the user wants to test with paper money soon. Gates still protect correctness, especially M3's zero-false-positive gate.
+
+### D-021: Share the dashboard as a static snapshot on Vercel's free tier (2026-11-24)
+- **Decision:**
+  - `xmatch publish` exports a snapshot (`xmatch export` writes `site/`) and runs `vercel deploy site --prod`.
+  - The same `index.html` runs in static mode, reading `data/*.json`.
+  - The snapshot covers the funnel, volume, hold-outs, runs, error messages, the top 3,000 candidate pairs, and the eligible plus held-out markets with their rules, about 30 MB.
+- **Left out on purpose:**
+  - error tracebacks, which contain local paths;
+  - raw API payloads (about 55 MB);
+  - the roughly 300k long-tail markets below the gate.
+- **Alternatives:**
+  - Tailscale to the live local dashboard;
+  - a hosted Postgres behind Vercel functions;
+  - each collaborator running their own copy.
+- **Reason:**
+  - The user asked for Vercel's free tier so a collaborator can view the data.
+  - Vercel can't reach the local database, and the free hosted databases are smaller than the store (about 330k markets plus payloads).
+  - A static snapshot exposes no database and no secrets and costs nothing. It's as fresh as the last `publish`.
+- **Caveats:**
+  - This deliberately departs from the Phase 1 "no cloud deploy" rule, at the user's request.
+  - On the Hobby plan, production URLs are public; password protection is a paid feature. The data is public market data.

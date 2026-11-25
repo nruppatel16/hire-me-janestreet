@@ -74,3 +74,19 @@ def test_pairs_endpoint_empty_then_populated(seeded):
     api = Api(seeded)
     assert api.pairs() == {"total": 0, "rows": []}
     assert api.summary()["retrieval"]["model"] == seeded.embeddings.model
+
+
+def test_static_export_has_no_tracebacks_payloads_or_paths(seeded, tmp_path):
+    from xmatch.dashboard.export import export_site
+    from xmatch.ingest.runner import IngestRun
+    from .test_runner import FakeSource
+    IngestRun(FakeSource([[mk("X")]], fail_on_page=0), seeded).run()   # a failed run with a traceback
+    info = export_site(seeded, tmp_path / "site")
+    site = tmp_path / "site"
+    assert (site / "index.html").read_text().startswith('<!doctype html>\n<html lang="en" data-static="1">')
+    assert json.loads((site / "vercel.json").read_text())["cleanUrls"] is True
+    blob = "".join(f.read_text() for f in site.rglob("*.json"))
+    assert "Traceback" not in blob and "/Users/" not in blob and '"payload_json":null' in blob
+    assert info["markets"] == 2   # BIG (eligible) + NORULES (held out); SMALL is below the gate
+    errs = json.loads((site / "data" / "errors.json").read_text())
+    assert errs and all(e["detail"] is None for e in errs)

@@ -25,6 +25,9 @@ uv run xmatch match           # slow job: ingest -> embed new/changed -> retriev
 uv run xmatch label           # hand-label candidate pairs into the eval set
 uv run xmatch recall          # recall vs candidate count, to choose the similarity floor
 uv run python scripts/check_gate2.py
+
+# Share a snapshot (static, no DB or secrets) on Vercel
+uv run xmatch publish         # export to site/ and `vercel deploy --prod`
 uv run pytest
 ```
 

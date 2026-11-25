@@ -111,6 +111,24 @@ def cmd_recall(args) -> int:
     return 0
 
 
+def cmd_export(args) -> int:
+    from pathlib import Path
+    from xmatch.dashboard.export import export_site
+    info = export_site(load_settings(), Path(args.out))
+    print(f"exported {info['markets']:,} markets, {info['pairs']:,} pairs, {info['bytes'] / 1e6:.1f} MB -> {info['out']}")
+    return 0
+
+
+def cmd_publish(args) -> int:
+    """Export the snapshot and deploy it to Vercel (static files only, D-021)."""
+    import subprocess
+    if cmd_export(args) != 0:
+        return 1
+    cmd = ["vercel", "deploy", args.out, "--prod", "--yes"]
+    print("$", " ".join(cmd))
+    return subprocess.call(cmd)
+
+
 def cmd_dashboard(args) -> int:
     from xmatch.dashboard.server import serve
     serve(port=args.port)
@@ -146,6 +164,12 @@ def main(argv=None) -> int:
     mt = sub.add_parser("match", help="slow job: ingest, embed, retrieve")
     mt.add_argument("--skip-ingest", action="store_true")
     mt.set_defaults(fn=cmd_match)
+    ex = sub.add_parser("export", help="write a static dashboard snapshot")
+    ex.add_argument("--out", default="site")
+    ex.set_defaults(fn=cmd_export)
+    pb = sub.add_parser("publish", help="export the snapshot and deploy it to Vercel")
+    pb.add_argument("--out", default="site")
+    pb.set_defaults(fn=cmd_publish)
     dash = sub.add_parser("dashboard", help="local read-only dashboard on 127.0.0.1")
     dash.add_argument("--port", type=int, default=8050)
     dash.set_defaults(fn=cmd_dashboard)

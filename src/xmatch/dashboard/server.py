@@ -136,7 +136,7 @@ class Api:
     def runs(self, limit: int = 40) -> list[dict]:
         with self._conn() as c:
             return c.execute("""
-                SELECT run_id, platform, status, started_at, ended_at,
+                SELECT run_id, job, platform, status, started_at, ended_at,
                        extract(epoch FROM coalesce(ended_at, now()) - started_at) AS seconds,
                        rows_read, rows_written, rows_new, rows_changed, rows_held_out, error_count,
                        (config_snapshot ->> 'fail_after_pages') IS NOT NULL AS injected

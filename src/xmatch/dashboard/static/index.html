@@ -224,7 +224,8 @@ const fmtUsd = (n) => {
   if (a >= 1e3) return "$" + (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + "K";
   return "$" + Math.round(n);
 };
-const PNAME = { kalshi: "Kalshi", polymarket: "Polymarket" };
+const PNAME = { kalshi: "Kalshi", polymarket: "Polymarket", all: "Both" };
+const JOB = { ingest: "Ingest", embed: "Embed", retrieve: "Retrieve" };
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleString("en-US",
   { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }) + " UTC" : "—";
 const ago = (iso, now) => {
@@ -235,8 +236,45 @@ const ago = (iso, now) => {
   if (s < 172800) return Math.round(s / 3600) + " h ago";
   return Math.round(s / 86400) + " d ago";
 };
-const dur = (s) => s == null ? "—" : s < 90 ? s.toFixed(0) + "s" : Math.floor(s / 60) + "m " + String(Math.round(s % 60)).padStart(2, "0") + "s";
+const dur = (s) => { if (s == null) return "—"; const t = Math.round(s);
+  return t < 90 ? t + "s" : t < 5400 ? Math.floor(t / 60) + "m " + String(t % 60).padStart(2, "0") + "s"
+    : Math.floor(t / 3600) + "h " + String(Math.floor((t % 3600) / 60)).padStart(2, "0") + "m"; };
+/* Static mode (hosted snapshot, D-021): same page, data from data/*.json instead of the live /api. */
+const STATIC = document.documentElement.dataset.static === "1";
+const fileCache = {};
+const loadFile = (f) => fileCache[f] ??= fetch("data/" + f).then((r) => {
+  if (!r.ok) throw new Error(`${f}: HTTP ${r.status}`); return r.json(); });
+const SORTERS = {
+  volume: (a, b) => (b.volume_usd ?? -1) - (a.volume_usd ?? -1) || a.id - b.id,
+  close: (a, b) => String(a.close_time_utc ?? "9").localeCompare(String(b.close_time_utc ?? "9")) || a.id - b.id,
+  updated: (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)) || a.id - b.id,
+};
+async function staticGet(url) {
+  const u = new URL(url, "http://x"), p = u.pathname, q = Object.fromEntries(u.searchParams);
+  const page = (all) => { const o = +q.offset || 0, l = +q.limit || 50; return { total: all.length, rows: all.slice(o, o + l) }; };
+  let m;
+  if (p === "/api/summary") return loadFile("summary.json");
+  if (p === "/api/volume") return loadFile("volume.json");
+  if (p === "/api/holdouts") return loadFile("holdouts.json");
+  if (p === "/api/runs") return loadFile("runs.json");
+  if ((m = p.match(/^\/api\/runs\/(\d+)\/errors$/))) return (await loadFile("errors.json")).filter((e) => e.run_id === +m[1]);
+  if (p === "/api/pairs") return page(await loadFile("pairs.json"));
+  if ((m = p.match(/^\/api\/markets\/(\d+)$/))) {
+    const row = (await loadFile(`m/${+m[1] % 256}.json`))[m[1]];
+    if (!row) throw new Error("not in snapshot"); return row;
+  }
+  if (p === "/api/markets") {
+    const needle = (q.q || "").trim().toLowerCase();
+    const rows = (await loadFile("markets.json")).filter((r) =>
+      (q.filter === "heldout" ? !r.matchable : r.status === "open" && r.passes_volume_gate && r.matchable)
+      && (!q.platform || r.platform === q.platform)
+      && (!needle || [r.title, r.native_id, r.event_title].some((v) => String(v ?? "").toLowerCase().includes(needle))));
+    return page(rows.sort(SORTERS[q.sort] || SORTERS.volume));
+  }
+  throw new Error("not available in snapshot: " + p);
+}
 async function get(url) {
+  if (STATIC) return staticGet(url);
   const r = await fetch(url);
   const body = await r.json();
   if (!r.ok) throw new Error(body.error || r.statusText);
@@ -257,8 +295,10 @@ async function loadSummary() {
     return `<span>${PNAME[p]} <strong title="${esc(fmtDate(ls && ls.ended_at))}">${ls ? esc(ago(ls.ended_at, s.now)) : "never ingested"}</strong>`
       + (running ? ` <span class="warn">· run ${lr.run_id} in progress</span>` : "")
       + (failed ? ` <span class="bad">· last run failed</span>` : "") + `</span>`;
-  }).join("") + `<button class="btn" id="refresh" title="Reload all panels">Refresh</button>`;
-  $("#refresh").onclick = refreshAll;
+  }).join("") + (STATIC
+    ? `<span class="warn" title="${esc(fmtDate(s.snapshot_at))}">Snapshot · ${esc(ago(s.snapshot_at))}</span>`
+    : `<button class="btn" id="refresh" title="Reload all panels">Refresh</button>`);
+  if (!STATIC) $("#refresh").onclick = refreshAll;
 
   const P = s.platforms, L = s.later;
   const stages = [
@@ -320,7 +360,7 @@ let lastSummary = null;
 async function loadPairs() {
   const { total, rows } = await get(`/api/pairs?offset=${pst.offset}&limit=${pst.limit}`);
   const s = lastSummary;
-  if (s) $("#pairs-note").textContent = `${s.retrieval.model} · top ${s.retrieval.top_k} both ways · floor ${s.retrieval.floor}`
+  if (s) $("#pairs-note").textContent = (STATIC && s.later.candidate_pairs > total ? `top ${fmtN(total)} of ${fmtN(s.later.candidate_pairs)} · ` : "") + `${s.retrieval.model} · top ${s.retrieval.top_k} both ways · floor ${s.retrieval.floor}`
     + ` · labeled ${s.eval.must_confirm} confirm / ${s.eval.must_reject} reject`;
   $("#pairs-range").textContent = total ? `${fmtN(pst.offset + 1)}–${fmtN(pst.offset + rows.length)} of ${fmtN(total)}` : "";
   $("#pprev").disabled = pst.offset === 0; $("#pnext").disabled = pst.offset + rows.length >= total;
@@ -354,13 +394,13 @@ async function loadHoldouts() {
 let openRun = null;
 async function loadRuns() {
   const runs = await get("/api/runs");
-  const head = `<tr><th class="n">Run</th><th>Platform</th><th>Status</th><th>Started</th><th class="n">Took</th>
-    <th class="n">Read</th><th class="n hide-sm">New</th><th class="n hide-sm">Text changed</th><th class="n hide-sm">Held out</th><th class="n">Errors</th></tr>`;
+  const head = `<tr><th class="n">Run</th><th>Job</th><th>Status</th><th>Started</th><th class="n">Took</th>
+    <th class="n" title="Ingest: markets read · Embed: markets pending · Retrieve: vectors loaded">Read</th><th class="n hide-sm">New</th><th class="n hide-sm">Text changed</th><th class="n hide-sm">Held out</th><th class="n">Errors</th></tr>`;
   $("#runs").innerHTML = head + runs.map((r) => {
     const cls = r.status === "succeeded" ? "ok" : r.status === "failed" ? "bad" : "warn";
     const click = r.error_count > 0;
     return `<tr class="${click ? "click" : ""}" data-run="${r.run_id}">
-      <td class="n mono">${r.run_id}</td><td>${PNAME[r.platform]}</td>
+      <td class="n mono">${r.run_id}</td><td>${esc(JOB[r.job] || r.job)} <span class="muted">${esc(PNAME[r.platform] || r.platform)}</span></td>
       <td class="status"><span class="${cls}"><span class="dot"></span>${esc(r.status)}</span>${r.injected ? ` <span class="tag" title="Forced failure for the Gate 1 consistency test">test</span>` : ""}</td>
       <td title="${esc(fmtDate(r.started_at))}">${esc(ago(r.started_at))}</td><td class="n">${dur(r.seconds)}</td>
       <td class="n">${fmtN(r.rows_read)}</td><td class="n hide-sm">${fmtN(r.rows_new)}</td><td class="n hide-sm">${fmtN(r.rows_changed)}</td>
@@ -420,8 +460,9 @@ async function selectMarket(id) {
     </dl>
     <div class="muted" style="font-size:12px">Resolution text</div>
     <div class="rules">${esc(m.resolution_text || "— missing —")}</div>
-    <details style="margin-top:12px"><summary>Raw payload (${esc(fmtDate(m.payload_fetched_at))})</summary>
-      <pre>${esc(JSON.stringify(m.payload_json, null, 2))}</pre></details>`;
+    ${m.payload_json ? `<details style="margin-top:12px"><summary>Raw payload (${esc(fmtDate(m.payload_fetched_at))})</summary>
+      <pre>${esc(JSON.stringify(m.payload_json, null, 2))}</pre></details>`
+      : `<p class="note" style="margin-top:12px">Raw API payload: available in the local dashboard only.</p>`}`;
 }
 let qTimer;
 $("#q").addEventListener("input", (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { st.q = e.target.value; st.offset = 0; loadMarkets(); }, 250); });
@@ -441,8 +482,13 @@ async function refreshAll() {
   try { await loadSummary(); await Promise.all([loadVolume(), loadHoldouts(), loadRuns(), loadMarkets(), loadPairs()]); }
   catch (e) { showError(e); }
 }
+if (STATIC) {
+  for (const v of ["live", "unlisted", "all"]) document.querySelector(`#filter option[value="${v}"]`)?.remove();
+  document.querySelector("footer").insertAdjacentHTML("afterbegin",
+    "Static snapshot of a local store, published with <span class='mono'>xmatch publish</span>. ");
+}
 refreshAll();
-setInterval(() => { Promise.all([loadSummary(), loadRuns()]).catch(showError); }, 60000);
+if (!STATIC) setInterval(() => { Promise.all([loadSummary(), loadRuns()]).catch(showError); }, 60000);
 </script>
 </body>
 </html>
