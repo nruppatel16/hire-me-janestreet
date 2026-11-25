@@ -129,6 +129,26 @@ def cmd_publish(args) -> int:
     return subprocess.call(cmd)
 
 
+def cmd_price(args) -> int:
+    """Fast-cadence job (PRD DP-10): price confirmed pairs, update arb lifetimes, run the paper ledger."""
+    import time
+    from xmatch.http import ReadOnlyClient
+    from xmatch.pricing.job import BookSource, run_pricing
+    s = load_settings()
+    pc = s.pricing
+    with ReadOnlyClient(s.kalshi.base_url, s.http, s.kalshi.requests_per_second) as k, \
+         ReadOnlyClient(pc.polymarket_clob_url, s.http, pc.polymarket_requests_per_second) as clob, \
+         ReadOnlyClient(pc.polymarket_data_url, s.http, pc.polymarket_requests_per_second) as data:
+        books = BookSource(s, k, clob, data)
+        while True:
+            st = run_pricing(s, books)
+            print(f"price run={st.run_id} status={st.status} pairs={st.pairs} quotes={st.quotes} arbs={st.arbs} "
+                  f"paper_opened={st.opened} settled={st.settled} {st.by_status}", flush=True)
+            if not args.every:
+                return 0 if st.status == "succeeded" else 1
+            time.sleep(args.every)
+
+
 def cmd_dashboard(args) -> int:
     from xmatch.dashboard.server import serve
     serve(port=args.port)
@@ -164,6 +184,9 @@ def main(argv=None) -> int:
     mt = sub.add_parser("match", help="slow job: ingest, embed, retrieve")
     mt.add_argument("--skip-ingest", action="store_true")
     mt.set_defaults(fn=cmd_match)
+    pr = sub.add_parser("price", help="fast job: price confirmed pairs and run the paper ledger")
+    pr.add_argument("--every", type=int, default=0, help="repeat every N seconds (0 = once)")
+    pr.set_defaults(fn=cmd_price)
     ex = sub.add_parser("export", help="write a static dashboard snapshot")
     ex.add_argument("--out", default="site")
     ex.set_defaults(fn=cmd_export)

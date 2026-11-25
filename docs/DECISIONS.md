@@ -141,3 +141,36 @@ A running log. Each entry records the decision, the alternatives, and the reason
   - A local open embedding model behind the same `Embedder` interface: free and unlimited, but a large new dependency (torch).
   - Wait 14 days.
 - **Status:** waiting on the user's choice.
+
+### D-023: Local open-weights embeddings, Qwen3-Embedding 0.6B via Ollama; resolves D-022 (2026-11-24)
+- **Decision:**
+  - Embeddings come from `qwen3-embedding:0.6b` (1024 dimensions, unit-norm output, observed). It's served by a project-local Ollama: `scripts/ollama.sh`, port 11435, models in `./.ollama-models`.
+  - The provider, model and dimensions are config values. The Gemini embedder stays available, and its 800 stored vectors are kept under their own key.
+- **Alternatives:** Gemini with billing (about $0.10); waiting out the Gemini free tier (14 days); larger Qwen3 sizes (4B and 8B).
+- **Reason:**
+  - The user asked for a local model "closest to OpenAI". Qwen3-Embedding ranks near the top of public embedding benchmarks; that's the published claim. Whether it actually suits this data is measured by the Gate 2 recall curve, not assumed.
+  - It's free and unlimited.
+  - 0.6B fits the 4.2 GB of free disk; 4B and 8B would take most of it.
+  - Sanity check: same event phrased differently 0.903, sibling product 0.848, unrelated 0.282.
+  - A separate server and port leave the user's own Ollama alone. Their models are symlinked to an external drive that isn't mounted.
+- **Speed:** about 4.5 texts/s on the M4 GPU, so the first full embed takes about 50 minutes.
+
+### D-024: Pricing and paper trading pulled forward, on hand-confirmed pairs only (2026-11-24)
+- **Decision:**
+  - `xmatch price` is the fast job; `--every N` loops it.
+  - It prices only rows in the `confirmed_pairs` view. That means pairs whose latest label is `must_confirm`, and whose Polymarket outcomes are exactly Yes/No so YES maps to YES (AI-7).
+  - The classifier's confirmed pairs join the view in M3.
+  - Paper positions open on fresh arbs that clear `min_net_margin` after fees, sized by walking both ask ladders, within a simulated bankroll. They settle from the platforms' own results: Kalshi `finalized` plus `settlement_value_dollars`/`result`; Polymarket data-api `/v2/resolutions` payouts.
+  - A settled position whose legs don't sum to $1 is flagged as a broken (non-equivalent) pair.
+- **Alternatives:** the PRD order, where the classifier passes Gate 3 before any pricing.
+- **Reason:** the user wants to test with paper money now. Hand labels are a stricter filter than the classifier, and no real money moves. The PRD's zero-false-positive gate still applies before classifier-confirmed pairs get priced.
+
+### D-025: Kalshi fee coefficient left unset until verified (2026-11-24)
+- **Decision:** `fees.kalshi_coefficient` is unset. While it's unset, Kalshi legs price gross and are flagged `fee_unverified`. Those arbs are observed and logged, but **no paper trades open**.
+- **Alternatives:** use a commonly quoted coefficient from memory.
+- **Reason:** the hard rule says no invented fee numbers. The API gives `fee_type` (quadratic...) and `fee_multiplier` per series, but the base coefficient is only in the fee-schedule PDF, which is bot-blocked (HTTP 429) for automated fetches. A human needs to read it.
+
+### D-026: Polymarket books read one token at a time with GET, not POST /books (2026-11-24)
+- **Decision:** `GET /book?token_id=` per token.
+- **Alternatives:** `POST /books` batch (500 items).
+- **Reason:** the platform client is GET-only by design, so no code path can send a write-shaped request to a trading platform. The GET limit (1,500 req / 10s, docs) is far above our needs.

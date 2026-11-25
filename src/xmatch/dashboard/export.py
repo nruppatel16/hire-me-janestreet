@@ -65,6 +65,7 @@ def export_site(s: Settings, out: Path, max_pairs: int = 3000) -> dict[str, Any]
                                "message": e["message"].split("\n")[0][:300], "detail": None})
     sizes["errors"] = _dump(data / "errors.json", errors)
     sizes["pairs"] = _dump(data / "pairs.json", api.pairs(limit=max_pairs)["rows"])
+    sizes["paper"] = _dump(data / "paper.json", api.paper())
 
     with api._conn() as c:
         rows = c.execute("""

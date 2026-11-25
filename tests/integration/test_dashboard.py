@@ -90,3 +90,9 @@ def test_static_export_has_no_tracebacks_payloads_or_paths(seeded, tmp_path):
     assert info["markets"] == 2   # BIG (eligible) + NORULES (held out); SMALL is below the gate
     errs = json.loads((site / "data" / "errors.json").read_text())
     assert errs and all(e["detail"] is None for e in errs)
+
+
+def test_paper_endpoint_on_empty_ledger(seeded):
+    d = Api(seeded).paper()
+    assert d["account"]["open_n"] == 0 and d["arbs"] == [] and d["confirmed_pairs"] == 0
+    assert d["kalshi_fee_verified"] is False

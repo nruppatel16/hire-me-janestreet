@@ -85,7 +85,7 @@ class Api:
             later = c.execute("""
                 SELECT (SELECT count(*) FROM candidate_pairs WHERE retrieval_version = %(v)s) AS candidate_pairs,
                        (SELECT count(*) FROM verdicts WHERE verdict = 'equivalent' AND direction_safe) AS confirmed,
-                       (SELECT count(*) FROM arb_observations) AS arbs""", {"v": retrieval_version(self.s)}).fetchone()
+                       (SELECT count(*) FROM arb_observations WHERE open) AS arbs""", {"v": retrieval_version(self.s)}).fetchone()
             emb = c.execute("""
                 SELECT (SELECT count(*) FROM eval_cases WHERE label = 'must_confirm') AS must_confirm,
                        (SELECT count(*) FROM eval_cases WHERE label = 'must_reject') AS must_reject,
@@ -100,6 +100,40 @@ class Api:
             "retrieval": {"version": retrieval_version(self.s), "top_k": self.s.retrieval.top_k,
                           "floor": self.s.retrieval.similarity_floor, "model": self.s.embeddings.model},
         }
+
+    def paper(self) -> dict[str, Any]:
+        """Paper ledger + latest live arbs (PR-6 live_arbs_current equivalent, fresh quotes only)."""
+        with self._conn() as c:
+            acct = c.execute("""
+                SELECT count(*) FILTER (WHERE status = 'open') AS open_n,
+                       coalesce(sum(cost_usd) FILTER (WHERE status = 'open'), 0) AS committed,
+                       count(*) FILTER (WHERE status = 'settled') AS settled_n,
+                       coalesce(sum(pnl_usd) FILTER (WHERE status = 'settled'), 0) AS realized,
+                       count(*) FILTER (WHERE status = 'settled' AND settle_note IS NOT NULL) AS broken
+                FROM paper_positions""").fetchone()
+            positions = c.execute("""
+                SELECT pp.id, pp.opened_at, pp.direction, pp.contracts, pp.cost_usd, pp.fees_usd,
+                       pp.expected_net_margin, pp.status, pp.payout_usd, pp.pnl_usd, pp.settle_note, pp.pair_source,
+                       k.native_id AS k_id, k.title AS k_title, p.native_id AS p_id, p.title AS p_title
+                FROM paper_positions pp JOIN markets k ON k.id = pp.kalshi_id JOIN markets p ON p.id = pp.polymarket_id
+                ORDER BY pp.status = 'open' DESC, pp.opened_at DESC LIMIT 100""").fetchall()
+            arbs = c.execute("""
+                SELECT q.direction, q.k_ask, q.p_ask, q.top_cost, q.contracts, q.cost_usd, q.net_margin, q.status,
+                       q.quoted_at, k.native_id AS k_id, k.title AS k_title, p.native_id AS p_id, p.title AS p_title,
+                       ao.first_seen
+                FROM quotes q JOIN markets k ON k.id = q.kalshi_id JOIN markets p ON p.id = q.polymarket_id
+                LEFT JOIN arb_observations ao ON ao.kalshi_id = q.kalshi_id AND ao.polymarket_id = q.polymarket_id
+                     AND ao.direction = q.direction AND ao.open
+                WHERE q.run_id = (SELECT max(run_id) FROM ingest_runs WHERE job = 'price' AND status = 'succeeded')
+                  AND q.status IN ('arb', 'fee_unverified')
+                  AND q.quoted_at > now() - make_interval(secs => %s)
+                ORDER BY q.net_margin DESC""", (self.s.pricing.freshness_s,)).fetchall()
+            pairs_n = c.execute("SELECT count(*) AS n FROM confirmed_pairs").fetchone()["n"]
+            last = c.execute("SELECT max(ended_at) AS t FROM ingest_runs WHERE job='price' AND status='succeeded'"
+                             ).fetchone()["t"]
+        return {"bankroll": self.s.paper.bankroll_usd, "account": acct, "positions": positions, "arbs": arbs,
+                "confirmed_pairs": pairs_n, "last_priced": last, "freshness_s": self.s.pricing.freshness_s,
+                "kalshi_fee_verified": self.s.fees.kalshi_coefficient is not None}
 
     def pairs(self, limit: int = 50, offset: int = 0) -> dict[str, Any]:
         v = retrieval_version(self.s)
@@ -216,6 +250,8 @@ def make_handler(api: Api):
                     return self._json(api.runs())
                 if m := re.fullmatch(r"/api/runs/(\d+)/errors", url.path):
                     return self._json(api.run_errors(int(m.group(1))))
+                if url.path == "/api/paper":
+                    return self._json(api.paper())
                 if url.path == "/api/pairs":
                     return self._json(api.pairs(limit=int(qs.get("limit", 50)), offset=int(qs.get("offset", 0))))
                 if url.path == "/api/markets":

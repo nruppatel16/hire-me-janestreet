@@ -43,14 +43,22 @@ base_url = "https://generativelanguage.googleapis.com/v1beta"
 api_key_env = "XMATCH_GEMINI_API_KEY"   # project-specific name so a shell-wide GEMINI_API_KEY cannot shadow it
 requests_per_second = 0.016       # observed 2026-11-24: free tier allows ~100 embedded texts/min (= 1 batch/62s); raise if billing is enabled
 
+[providers.ollama]
+base_url = "http://127.0.0.1:11435"   # project-local Ollama (scripts/ollama.sh), separate from any personal one
+api_key_env = ""                      # local: no key
+requests_per_second = 50
+
 [embeddings]
-provider = "gemini"
-model = "gemini-embedding-2"      # verified via models.list 2026-11-24
-dims = 768                        # gemini-embedding-2 returns unit-norm vectors at 768 (observed)
-batch_size = 100                  # hard API limit (101 returns 400, observed)
+# D-023: local open-weights model; the Gemini free tier caps embeddings at 1,000/day (D-022).
+provider = "ollama"
+model = "qwen3-embedding:0.6b"    # pulled 2026-11-24; native 1024-d, unit-norm output (observed)
+dims = 1024
+batch_size = 64
 text_version = 1                  # bump when the embedded-text recipe changes; forces re-embed
-price_per_mtok_usd = 0.20         # docs pricing page, 2026-11-24 (free tier: no charge)
-price_version = "gemini-embedding-2@2026-11-24"
+price_per_mtok_usd = 0.0          # local
+price_version = "local"
+# Previous: provider = "gemini", model = "gemini-embedding-2", dims = 768, batch_size = 100,
+#           price_per_mtok_usd = 0.20, price_version = "gemini-embedding-2@2026-11-24"
 
 [retrieval]
 top_k = 10                        # TARGET: per-direction neighbours kept before the floor
@@ -64,3 +72,31 @@ holdout_every = 3                 # roughly 1 in 3 new labels goes to holdout un
 [gate2]
 recall_target = 0.95              # TARGET: dev must_confirm pairs retrieved at the configured K and floor
 min_must_confirm = 10             # TARGET: recall on fewer labeled positives than this is not meaningful
+
+# ---------------- Milestone 4: pricing + paper trading (D-024) ----------------
+
+[pricing]
+freshness_s = 120                 # TARGET (PRD PR-1/PR-7): quotes older than this are not shown or traded
+min_net_margin = 0.02             # TARGET: minimum return per dollar after fees for a contract to count
+closing_buffer_minutes = 60       # skip pairs where either market closes sooner than this
+kalshi_books_batch = 100          # GET /markets/orderbooks max tickers (docs)
+polymarket_clob_url = "https://clob.polymarket.com"
+polymarket_data_url = "https://data-api.polymarket.com"
+polymarket_requests_per_second = 20   # docs: /book 1,500 req / 10s; staying far below
+
+[fees]
+# Taker fee per contract = rate x p x (1 - p) on both platforms.
+# Kalshi: rate = kalshi_coefficient x series fee_multiplier (GET /series/{ticker}); rounded UP to $0.000001
+#   (docs fee_rounding). kalshi_coefficient is UNVERIFIED: the official fee schedule PDF
+#   (kalshi.com/docs/kalshi-fee-schedule.pdf) is bot-blocked (HTTP 429). Leave it unset until a human reads the
+#   PDF. While unset, Kalshi legs are priced gross and flagged fee_unverified, and NO paper trades open.
+# kalshi_coefficient = 0.0
+kalshi_round_to = 0.000001
+# Polymarket: rate = market feeSchedule.rate when feesEnabled, else 0 (docs trading/fees); 5 dp rounding.
+polymarket_round_to = 0.00001
+version_note = "2026-11-24"
+
+[paper]
+enabled = true
+bankroll_usd = 1000               # simulated money only
+max_per_trade_usd = 100           # per pair x direction position

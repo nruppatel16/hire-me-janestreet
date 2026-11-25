@@ -9,3 +9,5 @@ __pycache__/
 dist/
 site/
 .vercel/
+.ollama-models/
+.ollama.log

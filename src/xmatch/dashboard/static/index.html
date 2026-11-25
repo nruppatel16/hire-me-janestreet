@@ -160,6 +160,17 @@ footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--rule);
   </section>
 
   <section>
+    <h2>Paper trading <small id="paper-note"></small></h2>
+    <p class="note" style="margin:0 0 10px">Simulated only. Quotes are what the order books implied at the time;
+      they are not executable profit. Legs can fill at different times and books move.</p>
+    <div id="paper-stats" class="scroll"></div>
+    <h2 style="margin-top:18px">Live arbs <small id="arbs-note"></small></h2>
+    <div class="scroll"><table id="arbs"></table></div>
+    <h2 style="margin-top:18px">Positions</h2>
+    <div class="scroll"><table id="positions"></table></div>
+  </section>
+
+  <section>
     <h2>Candidate pairs <small id="pairs-note"></small></h2>
     <div class="scroll"><table id="pairs"></table></div>
     <div class="pager"><span id="pairs-range"></span>
@@ -259,6 +270,7 @@ async function staticGet(url) {
   if (p === "/api/runs") return loadFile("runs.json");
   if ((m = p.match(/^\/api\/runs\/(\d+)\/errors$/))) return (await loadFile("errors.json")).filter((e) => e.run_id === +m[1]);
   if (p === "/api/pairs") return page(await loadFile("pairs.json"));
+  if (p === "/api/paper") return loadFile("paper.json");
   if ((m = p.match(/^\/api\/markets\/(\d+)$/))) {
     const row = (await loadFile(`m/${+m[1] % 256}.json`))[m[1]];
     if (!row) throw new Error("not in snapshot"); return row;
@@ -352,6 +364,41 @@ async function loadVolume() {
     svg += `<line class="gate" x1="${gx}" x2="${gx}" y1="0" y2="${H}"/><text class="gate-l" x="${gx + 4}" y="9">gate</text></svg>`;
     return `<div class="hist"><h3>${PNAME[p]} <span class="muted">· ${fmtN(passing)} of ${fmtN(total)} pass</span></h3>${svg}</div>`;
   }).join("");
+}
+
+/* ---------- paper trading ---------- */
+const pct = (x) => x == null ? "—" : (100 * x).toFixed(2) + "%";
+const usd2 = (x) => x == null ? "—" : (x < 0 ? "−$" : "$") + Math.abs(x).toFixed(2);
+const DIR = { 1: "YES Kalshi + NO Poly", 2: "YES Poly + NO Kalshi" };
+async function loadPaper() {
+  const d = await get("/api/paper");
+  const a = d.account, equity = d.bankroll + a.realized;
+  $("#paper-note").textContent = `${fmtN(d.confirmed_pairs)} confirmed pairs priced · last pass ${d.last_priced ? ago(d.last_priced) : "never"}`;
+  $("#paper-stats").innerHTML = `<table><tr><th>Bankroll</th><th class="n">Equity</th><th class="n">Committed</th>
+    <th class="n">Realized P&amp;L</th><th class="n">Open</th><th class="n">Settled</th><th class="n">Broken pairs</th></tr>
+    <tr><td>${usd2(d.bankroll)}</td><td class="n">${usd2(equity)}</td><td class="n">${usd2(a.committed)}</td>
+    <td class="n ${a.realized > 0 ? "ok" : a.realized < 0 ? "bad" : ""}">${usd2(a.realized)}</td>
+    <td class="n">${fmtN(a.open_n)}</td><td class="n">${fmtN(a.settled_n)}</td>
+    <td class="n ${a.broken ? "bad" : "faint"}" title="Settled positions whose legs did not pay $1 together: a false positive">${fmtN(a.broken)}</td></tr></table>`
+    + (d.kalshi_fee_verified ? "" : `<p class="warn" style="margin:8px 0 0">Kalshi fee rate not verified yet: arbs below are gross of Kalshi fees and no paper trades open until it is set.</p>`);
+  $("#arbs-note").textContent = `quotes newer than ${d.freshness_s}s, best first`;
+  $("#arbs").innerHTML = d.arbs.length ? `<tr><th>Pair</th><th>Direction</th><th class="n">Asks</th><th class="n">Net margin</th>
+    <th class="n">Size</th><th class="n hide-sm">Open for</th></tr>` + d.arbs.map((r) => `<tr>
+      <td class="mt"><div title="${esc(r.k_title)}">${esc(r.k_title)}</div><div class="muted" title="${esc(r.p_title)}">${esc(r.p_title)}</div></td>
+      <td style="white-space:nowrap">${DIR[r.direction]}${r.status === "fee_unverified" ? ` <span class="tag">gross</span>` : ""}</td>
+      <td class="n mono">${(+r.k_ask).toFixed(3)} + ${(+r.p_ask).toFixed(3)}</td>
+      <td class="n ok">${pct(r.net_margin)}</td><td class="n">${fmtN(r.contracts)} · ${usd2(r.cost_usd)}</td>
+      <td class="n hide-sm">${r.first_seen ? dur((new Date(r.quoted_at) - new Date(r.first_seen)) / 1000) : "—"}</td></tr>`).join("")
+    : `<tr><td class="empty">No open arbs in the latest pricing pass.</td></tr>`;
+  $("#positions").innerHTML = d.positions.length ? `<tr><th>Opened</th><th>Pair</th><th>Direction</th><th class="n">Contracts</th>
+    <th class="n">Cost</th><th class="n">Expected</th><th>Status</th><th class="n">P&amp;L</th></tr>` + d.positions.map((p) => `<tr>
+      <td style="white-space:nowrap" title="${esc(fmtDate(p.opened_at))}">${esc(ago(p.opened_at))}</td>
+      <td class="mt"><div title="${esc(p.k_title)}">${esc(p.k_title)}</div><div class="muted mono" style="font-size:11.5px">${esc(p.k_id)} · ${esc(p.p_id)}</div></td>
+      <td style="white-space:nowrap">${DIR[p.direction]}</td><td class="n">${fmtN(p.contracts)}</td><td class="n">${usd2(p.cost_usd)}</td>
+      <td class="n">${pct(p.expected_net_margin)}</td>
+      <td>${p.status === "open" ? `<span class="warn">open</span>` : esc(p.status)}${p.settle_note ? ` <span class="bad" title="${esc(p.settle_note)}">not equivalent</span>` : ""}</td>
+      <td class="n ${p.pnl_usd > 0 ? "ok" : p.pnl_usd < 0 ? "bad" : ""}">${usd2(p.pnl_usd)}</td></tr>`).join("")
+    : `<tr><td class="empty">No paper positions yet.</td></tr>`;
 }
 
 /* ---------- candidate pairs ---------- */
@@ -479,7 +526,7 @@ function showError(e) {
   $("#fresh").innerHTML = `<span class="bad">Can't reach the store: ${esc(e.message)}. Is Postgres running? (scripts/db.sh start)</span>`;
 }
 async function refreshAll() {
-  try { await loadSummary(); await Promise.all([loadVolume(), loadHoldouts(), loadRuns(), loadMarkets(), loadPairs()]); }
+  try { await loadSummary(); await Promise.all([loadVolume(), loadHoldouts(), loadRuns(), loadMarkets(), loadPairs(), loadPaper()]); }
   catch (e) { showError(e); }
 }
 if (STATIC) {
@@ -488,7 +535,7 @@ if (STATIC) {
     "Static snapshot of a local store, published with <span class='mono'>xmatch publish</span>. ");
 }
 refreshAll();
-if (!STATIC) setInterval(() => { Promise.all([loadSummary(), loadRuns()]).catch(showError); }, 60000);
+if (!STATIC) setInterval(() => { Promise.all([loadSummary(), loadRuns(), loadPaper()]).catch(showError); }, 60000);
 </script>
 </body>
 </html>

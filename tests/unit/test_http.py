@@ -71,3 +71,23 @@ def test_provider_honors_google_retry_delay():
     c = ProviderClient("https://x.test", CFG, 1000.0, transport=httpx.MockTransport(handler), sleep=sleeps.append)
     assert c.post_json("/e", {}) == {"ok": 1}
     assert max(sleeps) >= 7.0
+
+
+def test_ollama_embedder_shape_check(monkeypatch):
+    from xmatch.ai.embeddings import OllamaEmbedder
+    from xmatch.config import load_settings
+    from xmatch.http import FetchError, ProviderClient
+    monkeypatch.setenv("DATABASE_URL", "postgresql://x@localhost/y")
+    s = load_settings()
+    s.embeddings.dims = 3
+    def handler(req):
+        import json as _j
+        n = len(_j.loads(req.content)["input"])
+        return httpx.Response(200, json={"embeddings": [[1.0, 0, 0]] * n, "prompt_eval_count": 7})
+    e = OllamaEmbedder(s, ProviderClient("http://o", CFG, 1000, transport=httpx.MockTransport(handler), sleep=lambda x: None))
+    r = e.embed(["a", "b"])
+    assert len(r.vectors) == 2 and r.tokens_in == 7
+    s.embeddings.dims = 4
+    e2 = OllamaEmbedder(s, ProviderClient("http://o", CFG, 1000, transport=httpx.MockTransport(handler), sleep=lambda x: None))
+    with pytest.raises(FetchError):
+        e2.embed(["a"])

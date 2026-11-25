@@ -20,11 +20,14 @@ uv run xmatch ingest          # full ingest, both platforms
 uv run python scripts/check_gate1.py
 uv run xmatch dashboard       # http://127.0.0.1:8050, read-only
 
-# Milestone 2 (needs XMATCH_GEMINI_API_KEY in .env)
+# Milestone 2 (local embeddings: ./scripts/ollama.sh start)
 uv run xmatch match           # slow job: ingest -> embed new/changed -> retrieve candidate pairs
 uv run xmatch label           # hand-label candidate pairs into the eval set
 uv run xmatch recall          # recall vs candidate count, to choose the similarity floor
 uv run python scripts/check_gate2.py
+
+# Paper trading (simulated; prices only hand-confirmed pairs for now)
+uv run xmatch price --every 120   # fast job: books -> quotes -> arb lifetimes -> paper ledger
 
 # Share a snapshot (static, no DB or secrets) on Vercel
 uv run xmatch publish         # export to site/ and `vercel deploy --prod`

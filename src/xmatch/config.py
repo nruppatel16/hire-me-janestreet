@@ -85,6 +85,29 @@ class Gate2Cfg(BaseModel):
     min_must_confirm: int
 
 
+class PricingCfg(BaseModel):
+    freshness_s: int
+    min_net_margin: float
+    closing_buffer_minutes: int
+    kalshi_books_batch: int
+    polymarket_clob_url: str
+    polymarket_data_url: str
+    polymarket_requests_per_second: float
+
+
+class FeesCfg(BaseModel):
+    kalshi_coefficient: float | None = None
+    kalshi_round_to: float
+    polymarket_round_to: float
+    version_note: str
+
+
+class PaperCfg(BaseModel):
+    enabled: bool
+    bankroll_usd: float
+    max_per_trade_usd: float
+
+
 class Settings(BaseModel):
     http: HttpCfg
     kalshi: KalshiCfg
@@ -97,6 +120,9 @@ class Settings(BaseModel):
     retrieval: RetrievalCfg
     eval: EvalCfg
     gate2: Gate2Cfg
+    pricing: PricingCfg
+    fees: FeesCfg
+    paper: PaperCfg
     database_url: str
 
     def api_key(self, provider: str) -> str:

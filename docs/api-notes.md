@@ -126,3 +126,26 @@ Checked 2026-11-24.
 ### Deprecations (docs)
 - `gemini-2.5-flash` routes to `gemini-3.5-flash-lite` from 2026-12-01.
 - `gemini-2.5-pro` routes to `gemini-3.8-flash` from 2026-12-01.
+
+---
+
+## Pricing endpoints (checked 2026-11-24)
+
+### Kalshi (https://docs.kalshi.com)
+- **Batch order books:** `GET /markets/orderbooks?tickers=A&tickers=B` takes up to 100 tickers (docs: api-reference/market/get-multiple-market-orderbooks). It returns `{"orderbooks":[{"ticker","orderbook_fp":{"yes_dollars":[[price,size]],"no_dollars":[...]}}]}`.
+  - **Bids only:** a YES ask equals 1 minus the best NO bid (docs: get-market-orderbook).
+  - **Sort:** ascending, best last.
+  - **Observed:** a live call returns 200 without auth, with prices as 4-decimal dollar strings.
+- **Series fees:** `GET /series/{ticker}` returns `fee_type` (`quadratic`, `quadratic_with_maker_fees`, ...) and `fee_multiplier` (observed: KXNBAGAME 1, KXFED 1, KXCITRINI **0**). The per-value meanings of `fee_type` are not stated.
+- **Fee coefficient:** the base fee coefficient is **UNVERIFIED**. kalshi.com/docs/kalshi-fee-schedule.pdf returns 429 to automated clients. The fee rounding rule is verified: "rounded up to the nearest $0.000001" (getting_started/fee_rounding).
+- **Settlement:** `GET /markets/{ticker}` returns `status` (`finalized`), `result` (`yes`/`no`/`scalar`/''), and `settlement_value_dollars` ("settlement value of the YES/LONG side ... Only filled after determination").
+
+### Polymarket (https://docs.polymarket.com)
+- **Order book:** `GET https://clob.polymarket.com/book?token_id=` needs no auth (api-reference/market-data/get-order-book). It returns `bids`/`asks` as `{price,size}` strings.
+  - **Sort conflict:** the OpenAPI spec says bids are descending; the prices page says bids ascending and asks descending with the best price last. **Observed:** bids ascending, asks descending, best last. The code takes the min or max, so order doesn't matter.
+  - **Missing book:** 404 "No orderbook exists" for tokens without one.
+- **Batch:** `POST /books` (500 items) exists but is not used (D-026).
+- **YES/NO tokens:** outcome index 0 = YES, 1 = NO, matching the `clobTokenIds` order (market-data/market-details).
+- **Fees:** `fee = C x feeRate x p x (1-p)`, takers only, rounded to 5 decimal places (trading/fees). Market fields: `feesEnabled` and `feeSchedule.rate`. The meaning of `takerBaseFee` is not stated, so it isn't used.
+- **Resolution:** `GET https://data-api.polymarket.com/v2/resolutions?condition=<conditionId>` returns `status` (`posed` ... `resolved`) and `payouts` ("micro-USDC per share, [outcome0, outcome1]").
+- **Rate limits:** `/book` 1,500 req / 10s, IP-based, throttled rather than rejected (api-reference/rate-limits).
