@@ -57,3 +57,17 @@ def test_backoff_is_capped():
 
 def test_client_is_get_only():
     assert not any(hasattr(ReadOnlyClient, m) for m in ("post", "put", "delete", "patch"))
+
+
+def test_provider_honors_google_retry_delay():
+    from xmatch.http import ProviderClient
+    seq = iter([429, 200])
+    def handler(req):
+        if next(seq) == 429:
+            return httpx.Response(429, json={"error": {"details": [
+                {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "7s"}]}})
+        return httpx.Response(200, json={"ok": 1})
+    sleeps = []
+    c = ProviderClient("https://x.test", CFG, 1000.0, transport=httpx.MockTransport(handler), sleep=sleeps.append)
+    assert c.post_json("/e", {}) == {"ok": 1}
+    assert max(sleeps) >= 7.0

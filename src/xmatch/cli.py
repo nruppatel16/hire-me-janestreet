@@ -39,6 +39,37 @@ def cmd_ingest(args) -> int:
     return 0 if all(st.status == "succeeded" for st in results.values()) else 1
 
 
+def cmd_embed(args) -> int:
+    from xmatch.ai.embeddings import make_embedder
+    from xmatch.ai.matching import run_embed
+    from xmatch.ai.vectors import PgArrayStore
+    s = load_settings()
+    st = run_embed(s, make_embedder(s), PgArrayStore())
+    print(f"embed run={st.run_id} status={st.status} pending={st.pending} embedded={st.embedded} "
+          f"api_calls={st.api_calls} tokens_in={st.tokens_in} cost_usd={st.cost_usd:.4f}")
+    return 0 if st.status == "succeeded" else 1
+
+
+def cmd_retrieve(args) -> int:
+    from xmatch.ai.matching import run_retrieve
+    from xmatch.ai.vectors import PgArrayStore
+    st = run_retrieve(load_settings(), PgArrayStore())
+    print(f"retrieve run={st.run_id} status={st.status} version={st.version} kalshi={st.kalshi_vectors} "
+          f"polymarket={st.polymarket_vectors} pairs={st.pairs}")
+    for b in sorted(st.similarity_hist, reverse=True):
+        print(f"  sim >= {b}: {st.similarity_hist[b]}")
+    return 0 if st.status == "succeeded" else 1
+
+
+def cmd_match(args) -> int:
+    """Slow-cadence job (PRD DP-10): ingest -> embed new/changed -> retrieve."""
+    if not args.skip_ingest and cmd_ingest(argparse.Namespace(platform="all", fail_after_pages=None)) != 0:
+        return 1
+    if cmd_embed(args) != 0:
+        return 1
+    return cmd_retrieve(args)
+
+
 def cmd_dashboard(args) -> int:
     from xmatch.dashboard.server import serve
     serve(port=args.port)
@@ -56,6 +87,11 @@ def main(argv=None) -> int:
     ing.add_argument("--fail-after-pages", type=int, default=None,
                      help="TESTING ONLY: raise inside the page transaction after N committed pages")
     ing.set_defaults(fn=cmd_ingest)
+    sub.add_parser("embed", help="embed new/changed eligible markets").set_defaults(fn=cmd_embed)
+    sub.add_parser("retrieve", help="recompute candidate pairs").set_defaults(fn=cmd_retrieve)
+    mt = sub.add_parser("match", help="slow job: ingest, embed, retrieve")
+    mt.add_argument("--skip-ingest", action="store_true")
+    mt.set_defaults(fn=cmd_match)
     dash = sub.add_parser("dashboard", help="local read-only dashboard on 127.0.0.1")
     dash.add_argument("--port", type=int, default=8050)
     dash.set_defaults(fn=cmd_dashboard)

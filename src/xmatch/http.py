@@ -76,15 +76,24 @@ class _RetryingClient:
                 if resp.status_code == 200:
                     return resp.json()
                 status = resp.status_code
-                last_err = f"HTTP {status}: {resp.text[:200]}"
+                last_err = f"HTTP {status}: {resp.text[:2000]}"
                 if status not in RETRYABLE_STATUS:
                     raise FetchError(last_err, url=str(resp.request.url), status=status, attempts=attempt + 1)
             if attempt < self._cfg.max_retries:
                 if self._on_retry:
-                    self._on_retry(path, attempt + 1, last_err)
-                self._sleep(self._backoff(attempt))
+                    self._on_retry(path, attempt + 1, last_err[:300])
+                hint = self._server_retry_hint(resp) if status == 429 else None
+                self._sleep(max(self._backoff(attempt), min(hint or 0.0, self._cfg.backoff_max_s * 2)))
         raise FetchError(f"gave up after {self._cfg.max_retries + 1} attempts: {last_err}",
                          url=path, status=status, attempts=self._cfg.max_retries + 1)
+
+    def _server_retry_hint(self, resp: httpx.Response) -> float | None:
+        """Seconds the server asked us to wait, if it said. Overridden per provider."""
+        ra = resp.headers.get("Retry-After")
+        try:
+            return float(ra) if ra else None
+        except ValueError:
+            return None
 
     def close(self) -> None:  # noqa: D401
         self._client.close()
@@ -110,3 +119,13 @@ class ProviderClient(_RetryingClient):
 
     def post_json(self, path: str, body: dict[str, Any]) -> Any:
         return self._request_json("POST", path, json=body)
+
+    def _server_retry_hint(self, resp: httpx.Response) -> float | None:
+        """Google APIs put the wait in error.details[RetryInfo].retryDelay, e.g. "37s"."""
+        try:
+            for d in resp.json()["error"].get("details", []):
+                if str(d.get("@type", "")).endswith("RetryInfo") and str(d.get("retryDelay", "")).endswith("s"):
+                    return float(d["retryDelay"][:-1])
+        except Exception:  # noqa: BLE001 - hint is best effort
+            return None
+        return super()._server_retry_hint(resp)

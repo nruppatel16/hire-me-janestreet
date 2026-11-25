@@ -40,7 +40,7 @@ count_tolerance_pct = 1.0   # TARGET (PRD DP-1)
 
 [providers.gemini]
 base_url = "https://generativelanguage.googleapis.com/v1beta"
-api_key_env = "GEMINI_API_KEY"   # the key itself lives only in .env
+api_key_env = "XMATCH_GEMINI_API_KEY"   # project-specific name so a shell-wide GEMINI_API_KEY cannot shadow it
 requests_per_second = 2           # UNVERIFIED: tier limits are only shown inside AI Studio
 
 [embeddings]
