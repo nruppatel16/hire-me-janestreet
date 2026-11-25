@@ -1,0 +1,14 @@
+# Gate 1 result, 2026-11-25T01:12Z, commit d8f28f0
+[PASS] kalshi: live double run, no duplicates: run 13 read 178497, run 15 read 178438 (delta -59, 0.03%; new in 2nd run: 102), duplicate keys: 0
+[PASS] kalshi: replay of run 15 is byte-identical: rows 191940 -> 191940, fingerprint 0176293d5149 -> 0176293d5149, replay run 17: read 178438, new 0, changed 0
+[PASS] kalshi: count within 1.0% of independent listing: stored 178438 vs reference 178317 (0.07%)
+[PASS] kalshi: no nulls on active matchable rows: active 178438, bad 0, held out 0 (no resolution text: 0)
+2026-11-24 20:09:50,527 ERROR xmatch.ingest.runner: kalshi run 18 FAILED: injected failure on page 4
+[PASS] kalshi: forced failure after 3 pages leaves store consistent: run 18 status=failed errors=1; rows 191940->192157, listed 178438->178655, rows touched by failed run 3000 (= payloads kept 3000, <= 3x1000), duplicates 0, untraceable rows 0
+[PASS] polymarket: live double run, no duplicates: run 14 read 150752, run 16 read 150801 (delta +49, 0.03%; new in 2nd run: 275), duplicate keys: 0
+[PASS] polymarket: replay of run 16 is byte-identical: rows 158931 -> 158931, fingerprint 6dcc88617ace -> 6dcc88617ace, replay run 19: read 150801, new 0, changed 0
+[PASS] polymarket: count within 1.0% of independent listing: stored 150801 vs reference 150383 (0.28%)
+[PASS] polymarket: no nulls on active matchable rows: active 150801, bad 0, held out 228 (no resolution text: 0)
+2026-11-24 20:12:31,247 ERROR xmatch.ingest.runner: polymarket run 20 FAILED: injected failure on page 4
+[PASS] polymarket: forced failure after 3 pages leaves store consistent: run 20 status=failed errors=1; rows 158931->158931, listed 150801->150801, rows touched by failed run 300 (= payloads kept 300, <= 3x100), duplicates 0, untraceable rows 0
+GATE 1: PASS (10/10 checks)
