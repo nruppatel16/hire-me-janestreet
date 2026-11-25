@@ -39,6 +39,12 @@ def cmd_ingest(args) -> int:
     return 0 if all(st.status == "succeeded" for st in results.values()) else 1
 
 
+def cmd_dashboard(args) -> int:
+    from xmatch.dashboard.server import serve
+    serve(port=args.port)
+    return 0
+
+
 def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -50,6 +56,9 @@ def main(argv=None) -> int:
     ing.add_argument("--fail-after-pages", type=int, default=None,
                      help="TESTING ONLY: raise inside the page transaction after N committed pages")
     ing.set_defaults(fn=cmd_ingest)
+    dash = sub.add_parser("dashboard", help="local read-only dashboard on 127.0.0.1")
+    dash.add_argument("--port", type=int, default=8050)
+    dash.set_defaults(fn=cmd_dashboard)
     args = ap.parse_args(argv)
     return args.fn(args)
 

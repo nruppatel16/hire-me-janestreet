@@ -15,6 +15,7 @@ uv sync
 uv run xmatch migrate
 uv run xmatch ingest          # full ingest, both platforms
 uv run python scripts/check_gate1.py
+uv run xmatch dashboard       # http://127.0.0.1:8050, read-only
 uv run pytest
 ```
 

@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xmatch store</title>
+<style>
+:root {
+  --bg: #fbfbf9; --bg-sunk: #f3f3f0; --fg: #191917; --muted: #6d6d67; --faint: #a3a39c;
+  --rule: #e6e6e1; --rule-strong: #cdcdc6; --accent: #2450b2; --ok: #1d7a3e; --bad: #b3261e; --warn: #8a5a00;
+  --bar: #191917; --bar-dim: #c9c9c2; --sel: #eef2fb;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111110; --bg-sunk: #191918; --fg: #e9e9e4; --muted: #9b9b94; --faint: #66665f;
+    --rule: #262624; --rule-strong: #3a3a37; --accent: #8aa9ff; --ok: #56c27e; --bad: #ff7a6e; --warn: #e0b040;
+    --bar: #e9e9e4; --bar-dim: #45453f; --sel: #1b2233;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111110; --bg-sunk: #191918; --fg: #e9e9e4; --muted: #9b9b94; --faint: #66665f;
+  --rule: #262624; --rule-strong: #3a3a37; --accent: #8aa9ff; --ok: #56c27e; --bad: #ff7a6e; --warn: #e0b040;
+  --bar: #e9e9e4; --bar-dim: #45453f; --sel: #1b2233;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans);
+       font-feature-settings: "tnum" 1; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 20px 24px 48px; }
+a { color: var(--accent); }
+button, select, input { font: inherit; color: inherit; }
+.num, td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+         padding-bottom: 14px; border-bottom: 1px solid var(--rule-strong); }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.brand b { font: 600 17px var(--mono); letter-spacing: -0.02em; }
+.brand span { color: var(--muted); }
+.fresh { display: flex; gap: 18px; align-items: baseline; color: var(--muted); flex-wrap: wrap; }
+.fresh strong { color: var(--fg); font-weight: 500; }
+.btn { border: 1px solid var(--rule-strong); background: transparent; border-radius: 4px; padding: 3px 10px;
+       cursor: pointer; }
+.btn:hover { background: var(--bg-sunk); }
+.btn:disabled { opacity: .4; cursor: default; }
+
+section { margin-top: 28px; }
+h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; display: flex; justify-content: space-between;
+     align-items: baseline; gap: 12px; }
+h2 small { font-weight: 400; color: var(--muted); font-size: 12.5px; }
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 6px 10px;
+     border-bottom: 1px solid var(--rule-strong); white-space: nowrap; }
+td { padding: 6px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--bg-sunk); }
+tr.sel td { background: var(--sel); }
+.scroll { overflow-x: auto; }
+
+/* funnel */
+.funnel td { padding: 9px 10px; }
+.funnel .stage { width: 34%; }
+.funnel .cell { width: 26%; }
+.funnel .v { display: block; font-size: 15px; }
+.funnel .track { width: 100%; max-width: 200px; margin: 5px 0 0 auto; height: 3px; background: var(--rule);
+                 display: flex; justify-content: flex-end; }
+.funnel .bar { height: 3px; background: var(--bar); min-width: 1px; }
+.funnel tr.pending td { color: var(--faint); }
+.funnel tr.pending .track { display: none; }
+.tag { font-size: 11px; border: 1px solid var(--rule-strong); border-radius: 3px; padding: 0 5px; color: var(--muted);
+       white-space: nowrap; }
+.note { color: var(--muted); font-size: 12.5px; }
+
+.two { display: grid; grid-template-columns: 3fr 2fr; gap: 32px; }
+.two > *, .explorer > *, .hists > * { min-width: 0; }
+td.status { white-space: nowrap; }
+.hists { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.hist h3 { font-size: 12.5px; font-weight: 500; margin: 0 0 4px; }
+.hist svg { width: 100%; height: auto; display: block; overflow: visible; }
+.hist text { fill: var(--muted); font: 10px var(--sans); }
+.hist .b-in { fill: var(--bar); }
+.hist .b-out { fill: var(--bar-dim); }
+.hist .gate { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
+.hist .gate-l { fill: var(--accent); }
+
+.ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px;
+       background: currentColor; vertical-align: 1px; }
+tr.errors td { background: var(--bg-sunk); padding: 10px 14px; }
+.err { margin: 0 0 10px; }
+.err:last-child { margin-bottom: 0; }
+details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+pre { margin: 6px 0 0; padding: 10px; background: var(--bg-sunk); border: 1px solid var(--rule);
+      border-radius: 4px; font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
+      max-height: 420px; overflow: auto; }
+
+/* explorer */
+.controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.controls input[type=search] { flex: 1 1 260px; min-width: 0; padding: 5px 9px; border: 1px solid var(--rule-strong);
+       border-radius: 4px; background: var(--bg); }
+.controls select { padding: 4px 6px; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--bg); }
+.seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 4px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 4px 10px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--rule-strong); }
+.seg button[aria-pressed=true] { background: var(--fg); color: var(--bg); }
+.explorer { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; align-items: start; }
+.mt { max-width: 0; width: 100%; }
+.mt div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pager { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; color: var(--muted); }
+.detail { position: sticky; top: 12px; border-left: 1px solid var(--rule-strong); padding-left: 20px; min-height: 120px; }
+.detail h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; line-height: 1.35; }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 12px 0; font-size: 13px; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+.rules { white-space: pre-wrap; font-size: 13px; line-height: 1.55; border-top: 1px solid var(--rule);
+         padding-top: 10px; margin-top: 4px; max-height: 360px; overflow: auto; }
+.empty { color: var(--muted); padding: 24px 0; }
+.flag { font-size: 11px; color: var(--muted); margin-left: 6px; white-space: nowrap; }
+footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 12.5px; }
+
+@media (max-width: 900px) {
+  .wrap { padding: 16px 16px 40px; }
+  .two, .explorer, .hists { grid-template-columns: 1fr; }
+  .detail { position: static; border-left: 0; border-top: 1px solid var(--rule-strong); padding: 16px 0 0; }
+  .hide-sm { display: none; }
+  header, .fresh { gap: 6px 14px; }
+  h2 { flex-wrap: wrap; }
+  td, th { padding: 6px 6px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><b>xmatch</b><span>Kalshi × Polymarket matching store · read-only</span></div>
+    <div class="fresh" id="fresh"><span class="muted">loading…</span></div>
+  </header>
+
+  <section>
+    <h2>Funnel <small id="gate-note"></small></h2>
+    <div class="scroll"><table class="funnel" id="funnel"></table></div>
+  </section>
+
+  <section class="two">
+    <div>
+      <h2>Cumulative volume, open markets <small>log buckets · bars right of the line pass the gate</small></h2>
+      <div class="hists" id="hists"></div>
+    </div>
+    <div>
+      <h2>Held out of matching <small>listed markets missing required fields</small></h2>
+      <table id="holdouts"></table>
+      <p class="note">Missing fields are never guessed. These rows stay in the store and are excluded until the
+        platform fills them in.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ingest runs <small>click a run with errors to see them</small></h2>
+    <div class="scroll"><table id="runs"></table></div>
+  </section>
+
+  <section>
+    <h2>Markets <small id="m-count"></small></h2>
+    <div class="controls">
+      <input type="search" id="q" placeholder="Search title, event or id" autocomplete="off">
+      <div class="seg" id="plat" role="group" aria-label="Platform">
+        <button data-v="" aria-pressed="true">All</button>
+        <button data-v="kalshi" aria-pressed="false">Kalshi</button>
+        <button data-v="polymarket" aria-pressed="false">Polymarket</button>
+      </div>
+      <select id="filter" aria-label="Filter">
+        <option value="gated">Eligible: open, over gate, complete</option>
+        <option value="live">All open</option>
+        <option value="heldout">Held out</option>
+        <option value="unlisted">No longer listed</option>
+        <option value="all">Everything</option>
+      </select>
+      <select id="sort" aria-label="Sort">
+        <option value="volume">Volume</option>
+        <option value="close">Closing soonest</option>
+        <option value="updated">Recently updated</option>
+      </select>
+    </div>
+    <div class="explorer">
+      <div>
+        <div class="scroll"><table id="markets"></table></div>
+        <div class="pager"><span id="m-range"></span>
+          <span><button class="btn" id="prev">Previous</button> <button class="btn" id="next">Next</button></span></div>
+      </div>
+      <aside class="detail" id="detail"><p class="empty">Select a market to see its resolution text and the raw
+        payload it was normalized from.</p></aside>
+    </div>
+  </section>
+
+  <footer>
+    Read-only. This system reads public market data and cannot place orders. Pipeline design after
+    <a href="https://www.yashkothari.ca/writing/polymarket-kalshi-arbitrage" rel="noopener">Yash Kothari's writeup</a>.
+  </footer>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nf = new Intl.NumberFormat("en-US");
+const fmtN = (n) => n == null ? "—" : nf.format(n);
+const fmtUsd = (n) => {
+  if (n == null) return "—";
+  const a = Math.abs(n);
+  if (a >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B";
+  if (a >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
+  if (a >= 1e3) return "$" + (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + "K";
+  return "$" + Math.round(n);
+};
+const PNAME = { kalshi: "Kalshi", polymarket: "Polymarket" };
+const fmtDate = (iso) => iso ? new Date(iso).toLocaleString("en-US",
+  { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }) + " UTC" : "—";
+const ago = (iso, now) => {
+  if (!iso) return "never";
+  const s = Math.max(0, (new Date(now || Date.now()) - new Date(iso)) / 1000);
+  if (s < 90) return Math.round(s) + "s ago";
+  if (s < 5400) return Math.round(s / 60) + " min ago";
+  if (s < 172800) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " d ago";
+};
+const dur = (s) => s == null ? "—" : s < 90 ? s.toFixed(0) + "s" : Math.floor(s / 60) + "m " + String(Math.round(s % 60)).padStart(2, "0") + "s";
+async function get(url) {
+  const r = await fetch(url);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || r.statusText);
+  return body;
+}
+
+/* ---------- summary + funnel ---------- */
+let gateUsd = 10000;
+async function loadSummary() {
+  const s = await get("/api/summary");
+  gateUsd = s.volume_gate_usd;
+  $("#gate-note").textContent = `volume gate ${fmtUsd(gateUsd)} cumulative (config)`;
+  $("#fresh").innerHTML = ["kalshi", "polymarket"].map((p) => {
+    const d = s.platforms[p], ls = d.last_success, lr = d.last_run;
+    const running = lr && lr.status === "running";
+    const failed = lr && lr.status === "failed" && (!ls || lr.run_id > ls.run_id);
+    return `<span>${PNAME[p]} <strong title="${esc(fmtDate(ls && ls.ended_at))}">${ls ? esc(ago(ls.ended_at, s.now)) : "never ingested"}</strong>`
+      + (running ? ` <span class="warn">· run ${lr.run_id} in progress</span>` : "")
+      + (failed ? ` <span class="bad">· last run failed</span>` : "") + `</span>`;
+  }).join("") + `<button class="btn" id="refresh" title="Reload all panels">Refresh</button>`;
+  $("#refresh").onclick = refreshAll;
+
+  const P = s.platforms, L = s.later;
+  const stages = [
+    ["Open and listed", "open_listed", "In the latest successful listing"],
+    [`Over ${fmtUsd(gateUsd)} volume`, "gated", "Volume gate, flagged not deleted"],
+    ["Complete text", "eligible", "Has title, resolution text and close time"],
+    ["Awaiting embedding", "pending_embedding", "New or changed text since last embed"],
+  ];
+  const max = Math.max(1, ...["kalshi", "polymarket"].map((p) => P[p].open_listed || 0));
+  // Linear on purpose: the point of the funnel is how much each stage cuts.
+  const bar = (v) => `<div class="track"><div class="bar" style="width:${(100 * (v || 0) / max).toFixed(2)}%"></div></div>`;
+  let rows = `<tr><th>Stage</th><th class="n">Kalshi</th><th class="n">Polymarket</th><th class="hide-sm">What it means</th></tr>`;
+  for (const [label, key, note] of stages) {
+    rows += `<tr><td class="stage">${esc(label)}</td>`
+      + ["kalshi", "polymarket"].map((p) => `<td class="cell n"><span class="v">${fmtN(P[p][key] ?? 0)}</span>${bar(P[p][key])}</td>`).join("")
+      + `<td class="note hide-sm">${esc(note)}</td></tr>`;
+  }
+  const later = [
+    ["Candidate pairs", L.candidate_pairs, "Milestone 2", "Embedding nearest neighbours above the similarity floor"],
+    ["Confirmed equivalent", L.confirmed, "Milestone 3", "LLM verdict equivalent, direction safe, evidence on both sides"],
+    ["Live arbitrage", L.arbs, "Milestone 4", "Both legs under $1 after fees"],
+  ];
+  for (const [label, v, ms, note] of later) {
+    const built = v > 0;
+    rows += `<tr class="${built ? "" : "pending"}"><td class="stage">${esc(label)} ${built ? "" : `<span class="tag">${ms}</span>`}</td>`
+      + `<td class="cell n" colspan="2"><span class="v">${built ? fmtN(v) + " pairs" : "not built"}</span></td>`
+      + `<td class="note hide-sm">${esc(note)}</td></tr>`;
+  }
+  $("#funnel").innerHTML = rows;
+}
+
+/* ---------- volume histogram ---------- */
+const BUCKET_LABEL = (b) => b < 0 ? "<$1" : fmtUsd(10 ** b).replace(".0", "");
+async function loadVolume() {
+  const data = await get("/api/volume");
+  const buckets = []; for (let b = -1; b <= 8; b++) buckets.push(b);
+  $("#hists").innerHTML = ["kalshi", "polymarket"].map((p) => {
+    const counts = Object.fromEntries(data.filter((r) => r.platform === p).map((r) => [r.bucket, r.n]));
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const passing = Object.entries(counts).reduce((a, [b, n]) => a + (Number(b) >= Math.log10(gateUsd) ? n : 0), 0);
+    const W = 300, H = 120, pad = 18, bw = W / buckets.length;
+    const maxN = Math.max(1, ...Object.values(counts));
+    const gx = (Math.log10(gateUsd) + 1) * bw; // bucket b spans x in [(b+1)bw, (b+2)bw)
+    let svg = `<svg viewBox="0 0 ${W} ${H + pad + 4}" role="img" aria-label="${esc(PNAME[p])} volume distribution">`;
+    buckets.forEach((b, i) => {
+      const n = counts[b] || 0, h = n ? Math.max(1.5, H * Math.sqrt(n / maxN)) : 0;
+      const cls = b >= Math.log10(gateUsd) ? "b-in" : "b-out";
+      svg += `<rect class="${cls}" x="${i * bw + 2}" y="${H - h}" width="${bw - 4}" height="${h}"><title>${esc(BUCKET_LABEL(b))}${b >= 0 ? "–" + esc(BUCKET_LABEL(b + 1)) : ""}: ${fmtN(n)} markets</title></rect>`;
+      if (i % 2 === 1 || buckets.length < 8) svg += `<text x="${i * bw}" y="${H + 13}">${esc(BUCKET_LABEL(b))}</text>`;
+    });
+    svg += `<line class="gate" x1="${gx}" x2="${gx}" y1="0" y2="${H}"/><text class="gate-l" x="${gx + 4}" y="9">gate</text></svg>`;
+    return `<div class="hist"><h3>${PNAME[p]} <span class="muted">· ${fmtN(passing)} of ${fmtN(total)} pass</span></h3>${svg}</div>`;
+  }).join("");
+}
+
+/* ---------- holdouts ---------- */
+async function loadHoldouts() {
+  const rows = await get("/api/holdouts");
+  if (!rows.length) { $("#holdouts").innerHTML = `<tr><td class="empty">None.</td></tr>`; return; }
+  const reasons = [...new Set(rows.map((r) => r.holdout_reason))];
+  const n = (p, r) => (rows.find((x) => x.platform === p && x.holdout_reason === r) || {}).n || 0;
+  $("#holdouts").innerHTML = `<tr><th>Reason</th><th class="n">Kalshi</th><th class="n">Polymarket</th></tr>`
+    + reasons.map((r) => `<tr><td class="mono">${esc(r.replace("missing:", "missing "))}</td><td class="n">${fmtN(n("kalshi", r))}</td><td class="n">${fmtN(n("polymarket", r))}</td></tr>`).join("");
+}
+
+/* ---------- runs ---------- */
+let openRun = null;
+async function loadRuns() {
+  const runs = await get("/api/runs");
+  const head = `<tr><th class="n">Run</th><th>Platform</th><th>Status</th><th>Started</th><th class="n">Took</th>
+    <th class="n">Read</th><th class="n hide-sm">New</th><th class="n hide-sm">Text changed</th><th class="n hide-sm">Held out</th><th class="n">Errors</th></tr>`;
+  $("#runs").innerHTML = head + runs.map((r) => {
+    const cls = r.status === "succeeded" ? "ok" : r.status === "failed" ? "bad" : "warn";
+    const click = r.error_count > 0;
+    return `<tr class="${click ? "click" : ""}" data-run="${r.run_id}">
+      <td class="n mono">${r.run_id}</td><td>${PNAME[r.platform]}</td>
+      <td class="status"><span class="${cls}"><span class="dot"></span>${esc(r.status)}</span>${r.injected ? ` <span class="tag" title="Forced failure for the Gate 1 consistency test">test</span>` : ""}</td>
+      <td title="${esc(fmtDate(r.started_at))}">${esc(ago(r.started_at))}</td><td class="n">${dur(r.seconds)}</td>
+      <td class="n">${fmtN(r.rows_read)}</td><td class="n hide-sm">${fmtN(r.rows_new)}</td><td class="n hide-sm">${fmtN(r.rows_changed)}</td>
+      <td class="n hide-sm">${fmtN(r.rows_held_out)}</td><td class="n ${r.error_count ? "bad" : "faint"}">${fmtN(r.error_count)}</td></tr>`
+      + (openRun === r.run_id ? `<tr class="errors"><td colspan="10" id="errs-${r.run_id}">Loading…</td></tr>` : "");
+  }).join("");
+  document.querySelectorAll("#runs tr.click").forEach((tr) => tr.onclick = () => {
+    const id = Number(tr.dataset.run); openRun = openRun === id ? null : id; loadRuns();
+  });
+  if (openRun != null && document.getElementById("errs-" + openRun)) {
+    const errs = await get(`/api/runs/${openRun}/errors`);
+    document.getElementById("errs-" + openRun).innerHTML = errs.map((e) => `<div class="err">
+      <span class="mono">${esc(e.stage)}</span>${e.native_id ? ` <span class="mono muted">${esc(e.native_id)}</span>` : ""}
+      · ${esc(e.message)}${e.detail ? `<details><summary>detail</summary><pre>${esc(e.detail.traceback || JSON.stringify(e.detail, null, 2))}</pre></details>` : ""}</div>`).join("") || "No errors.";
+  }
+}
+
+/* ---------- markets ---------- */
+const st = { q: "", platform: "", filter: "gated", sort: "volume", offset: 0, limit: 50, sel: null };
+async function loadMarkets() {
+  const p = new URLSearchParams({ q: st.q, platform: st.platform, filter: st.filter, sort: st.sort, offset: st.offset, limit: st.limit });
+  const { total, rows } = await get("/api/markets?" + p);
+  $("#m-count").textContent = `${fmtN(total)} match`;
+  $("#m-range").textContent = total ? `${fmtN(st.offset + 1)}–${fmtN(st.offset + rows.length)} of ${fmtN(total)}` : "";
+  $("#prev").disabled = st.offset === 0;
+  $("#next").disabled = st.offset + rows.length >= total;
+  if (!rows.length) { $("#markets").innerHTML = `<tr><td class="empty">No markets match.</td></tr>`; return; }
+  $("#markets").innerHTML = `<tr><th>Market</th><th class="n">Volume</th><th class="hide-sm">Closes (UTC)</th></tr>` + rows.map((m) => {
+    const flags = [!m.listed && "unlisted", !m.matchable && esc(m.holdout_reason), m.status !== "open" && esc(m.status)].filter(Boolean);
+    return `<tr class="click ${st.sel === m.id ? "sel" : ""}" data-id="${m.id}">
+      <td class="mt"><div title="${esc(m.title)}">${esc(m.title || "(no title)")}</div>
+        <div class="muted mono" style="font-size:11.5px">${PNAME[m.platform]} · ${esc(m.native_id)}${flags.map((f) => `<span class="flag">${f}</span>`).join("")}</div></td>
+      <td class="n ${m.passes_volume_gate ? "" : "muted"}">${fmtUsd(m.volume_usd)}</td>
+      <td class="hide-sm muted" style="white-space:nowrap">${esc(fmtDate(m.close_time_utc).replace(" UTC", ""))}</td></tr>`;
+  }).join("");
+  document.querySelectorAll("#markets tr.click").forEach((tr) => tr.onclick = () => selectMarket(Number(tr.dataset.id)));
+}
+async function selectMarket(id) {
+  st.sel = id;
+  document.querySelectorAll("#markets tr").forEach((tr) => tr.classList.toggle("sel", Number(tr.dataset.id) === id));
+  $("#detail").innerHTML = `<p class="empty">Loading…</p>`;
+  const m = await get("/api/markets/" + id);
+  const vol = m.volume_unit === "contracts"
+    ? `${fmtUsd(m.volume_usd)} <span class="muted">(${fmtN(m.volume_raw)} contracts × notional)</span>` : fmtUsd(m.volume_usd);
+  $("#detail").innerHTML = `
+    <div class="muted mono" style="font-size:12px">${PNAME[m.platform]} · ${esc(m.native_id)}</div>
+    <h3>${esc(m.title || "(no title)")}</h3>
+    ${m.event_title && !String(m.title || "").startsWith(m.event_title) ? `<div class="muted">${esc(m.event_title)}</div>` : ""}
+    <dl class="kv">
+      <dt>Volume</dt><dd>${vol} · ${m.passes_volume_gate ? "passes gate" : `<span class="muted">below gate</span>`}</dd>
+      <dt>Closes</dt><dd>${esc(fmtDate(m.close_time_utc))} <span class="muted">(source ${esc(m.source_tz)})</span></dd>
+      <dt>Status</dt><dd>${esc(m.status)} <span class="muted">(platform: ${esc(m.source_status)})${m.listed ? "" : " · no longer listed"}</span></dd>
+      <dt>Outcomes</dt><dd>${esc((m.outcome_labels || []).join(" / ") || "—")}</dd>
+      <dt>Matching</dt><dd>${m.matchable ? "eligible" : `<span class="warn">held out: ${esc(m.holdout_reason)}</span>`}${m.needs_embedding ? " · awaiting embedding" : ""}</dd>
+      <dt>Content hash</dt><dd class="mono">${esc(m.content_hash.slice(0, 16))}… v${m.hash_version}</dd>
+      <dt>Seen</dt><dd>runs ${m.first_seen_run}–${m.last_seen_run} · payload from run ${m.payload_run_id}</dd>
+    </dl>
+    <div class="muted" style="font-size:12px">Resolution text</div>
+    <div class="rules">${esc(m.resolution_text || "— missing —")}</div>
+    <details style="margin-top:12px"><summary>Raw payload (${esc(fmtDate(m.payload_fetched_at))})</summary>
+      <pre>${esc(JSON.stringify(m.payload_json, null, 2))}</pre></details>`;
+}
+let qTimer;
+$("#q").addEventListener("input", (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { st.q = e.target.value; st.offset = 0; loadMarkets(); }, 250); });
+document.querySelectorAll("#plat button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#plat button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  st.platform = b.dataset.v; st.offset = 0; loadMarkets();
+});
+$("#filter").onchange = (e) => { st.filter = e.target.value; st.offset = 0; loadMarkets(); };
+$("#sort").onchange = (e) => { st.sort = e.target.value; st.offset = 0; loadMarkets(); };
+$("#prev").onclick = () => { st.offset = Math.max(0, st.offset - st.limit); loadMarkets(); };
+$("#next").onclick = () => { st.offset += st.limit; loadMarkets(); };
+
+function showError(e) {
+  $("#fresh").innerHTML = `<span class="bad">Can't reach the store: ${esc(e.message)}. Is Postgres running? (scripts/db.sh start)</span>`;
+}
+async function refreshAll() {
+  try { await loadSummary(); await Promise.all([loadVolume(), loadHoldouts(), loadRuns(), loadMarkets()]); }
+  catch (e) { showError(e); }
+}
+refreshAll();
+setInterval(() => { Promise.all([loadSummary(), loadRuns()]).catch(showError); }, 60000);
+</script>
+</body>
+</html>
