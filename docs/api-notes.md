@@ -90,3 +90,38 @@ Source: https://docs.polymarket.com/market-data/discover-markets.md
 
 ### Counts
 - Neither platform exposes a total count. Gate 1 compares the primary listing against an independent second enumeration (see DECISIONS D-006).
+
+---
+
+## Gemini (Google AI)
+
+Checked 2026-11-24.
+
+### Docs and auth
+- Docs live at aistudio.google.com/docs (ai.google.dev redirects there): embeddings, rate-limits, pricing, structured-output, models.
+- Base URL: `https://generativelanguage.googleapis.com/v1beta`. The key goes in the `x-goog-api-key` header.
+
+### Embedding models (observed via `GET /models` with this key)
+- Available: `gemini-embedding-001`, `gemini-embedding-2`, `gemini-embedding-2-preview`.
+- The docs call `gemini-embedding-2` "the latest model". Its default dimension is 3072, and 768, 1536 and 3072 are recommended.
+- `gemini-embedding-2` doesn't accept `task_type`; the docs suggest prompt prefixes instead. Recipe v1 uses no prefix, because both sides of a pair are treated the same.
+
+### batchEmbedContents (observed)
+- **Batch size:** at most 100 requests per call. 101 returns 400: "at most 100 requests can be in one batch".
+- **Vectors:** 768-dimensional vectors come back with unit norm (1.0000).
+- **Usage:** the response includes `usageMetadata.promptTokenCount`.
+
+### Rate limits (observed on this key)
+- **Embedding:** about 100 embedded texts per minute. A second batch of 100 within a minute returns 429 "You exceeded your current quota". After roughly a minute it succeeds again. The docs only show tier limits inside AI Studio, behind sign-in.
+- **Text models:** limits are not stated in the public docs.
+
+### Pricing (docs)
+- `gemini-embedding-2`: $0.20 per 1M input tokens, and free of charge on the free tier.
+
+### Structured output (observed)
+- `generateContent` with `generationConfig.responseMimeType = "application/json"` plus `responseJsonSchema` (or `responseSchema`) returns schema-conforming JSON on `gemini-3.5-flash-lite`.
+- The docs page shows only the newer Interactions API (`/v1beta/interactions`).
+
+### Deprecations (docs)
+- `gemini-2.5-flash` routes to `gemini-3.5-flash-lite` from 2026-12-01.
+- `gemini-2.5-pro` routes to `gemini-3.8-flash` from 2026-12-01.

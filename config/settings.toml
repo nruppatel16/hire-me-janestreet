@@ -41,7 +41,7 @@ count_tolerance_pct = 1.0   # TARGET (PRD DP-1)
 [providers.gemini]
 base_url = "https://generativelanguage.googleapis.com/v1beta"
 api_key_env = "XMATCH_GEMINI_API_KEY"   # project-specific name so a shell-wide GEMINI_API_KEY cannot shadow it
-requests_per_second = 2           # UNVERIFIED: tier limits are only shown inside AI Studio
+requests_per_second = 0.016       # observed 2026-11-24: free tier allows ~100 embedded texts/min (= 1 batch/62s); raise if billing is enabled
 
 [embeddings]
 provider = "gemini"
@@ -56,3 +56,11 @@ price_version = "gemini-embedding-2@2026-11-24"
 top_k = 10                        # TARGET: per-direction neighbours kept before the floor
 similarity_floor = 0.70           # TARGET placeholder: to be chosen from the recall curve (Gate 2)
 block_rows = 2048                 # rows per matrix block during exact search (memory bound)
+
+[eval]
+holdout_size = 20                 # PRD section 7: frozen holdout, never used for tuning
+holdout_every = 3                 # roughly 1 in 3 new labels goes to holdout until it is full
+
+[gate2]
+recall_target = 0.95              # TARGET: dev must_confirm pairs retrieved at the configured K and floor
+min_must_confirm = 10             # TARGET: recall on fewer labeled positives than this is not meaningful

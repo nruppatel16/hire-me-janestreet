@@ -74,3 +74,41 @@ A running log. Each entry records the decision, the alternatives, and the reason
 - **Decision:** in the Gate 1 reference enumeration, a Polymarket market counts as open when `closed == false AND active == true`.
 - **Alternatives:** `closed == false` only (gap 14.90%); ingest the inactive markets through the events endpoint.
 - **Reason:** open events nest about 26.7k inactive placeholder outcomes (for example "Person AC") and archived markets. The markets listing never returns them, and they can't be traded, so they can never be an arbitrage. With matching definitions the two listings agree within 0.06%. Chosen by the user (option A).
+
+### D-015: Vectors as float4[] in Postgres with exact numpy search; supersedes D-001 (2026-11-24)
+- **Decision:** embeddings live in `embeddings.vector real[]`. Top-K uses exact cosine search in numpy (block matrix multiply), behind the `VectorStore` interface in `src/xmatch/ai/vectors.py`.
+- **Alternatives:** pgvector (D-001); Pinecone.
+- **Reason:** Homebrew's pgvector only builds for Postgres 18 and 19, and the local cluster is 15. Only about 14k markets pass the gate, so exact search is milliseconds and has no recall loss from approximate indexes. Moving to pgvector or Pinecone means writing one more `VectorStore`. Chosen with the user's go-ahead.
+
+### D-016: Gemini as the AI provider (2026-11-24)
+- **Decision:** embeddings use `gemini-embedding-2` at 768 dimensions. The model, dimensions, provider and price are all config values. The key is read from `XMATCH_GEMINI_API_KEY`.
+- **Alternatives:** OpenAI `text-embedding-3-large`, as in the PRD and the reference build.
+- **Reason:**
+  - The user chose Gemini and supplied the key.
+  - 768 dimensions come back already normalized (observed), and they keep vectors small.
+  - The variable name is project-specific because the user's shell exports a different `GEMINI_API_KEY`, which was shadowing `.env`.
+
+### D-017: Embedded text is title plus short description, not the rules (2026-11-24)
+- **Decision:** text recipe v1 is the title plus the description (Kalshi: event subtitle and `yes_sub_title`; Polymarket: `groupItemTitle`). Every embedding row stores the exact `input_text`, and bumping `text_version` forces a re-embed.
+- **Alternatives:** include the full resolution rules.
+- **Reason:** this follows PRD section 6. Rules are long, boilerplate-heavy and template-similar across unrelated markets, which would inflate similarity. Rules go to the M3 classifier instead.
+
+### D-018: Gate 2 criteria (2026-11-24)
+- **Decision:** Gate 2 passes when:
+  - every eligible market is embedded;
+  - re-running embed makes 0 provider calls;
+  - the candidate set is current;
+  - recall is at least 95% on at least 10 dev must-confirm pairs at the configured K and floor.
+  The thresholds are config TARGETs.
+- **Alternatives:** the PRD's milestone table, which didn't survive the markdown export.
+- **Reason:** these follow from the PRD's stated intent: tune the floor from data, use the cache, keep the model as config. Approved by the user.
+
+### D-019: Free-tier Gemini pacing (2026-11-24)
+- **Decision:** the Gemini client paces itself to 0.016 requests/s, which is one batch of 100 texts every 62 seconds. It honors Google's `RetryInfo.retryDelay` on 429.
+- **Alternatives:** keep 2 req/s and rely on retries.
+- **Reason:** observed limit for this key: about 100 embedded texts per minute. The first full embed of about 13.6k markets therefore takes about 2.3 hours once. After that the content-hash cache means only new or changed markets are embedded. Raise the rate if billing is enabled.
+
+### D-020: Milestone cadence and paper trading (2026-11-24)
+- **Decision:** build M2 → M3 → M4 back to back, stopping at each gate for review. Paper trading arrives in M4 as a simulated ledger: both legs at the ask, size limited by book depth, net of fees, held to resolution. No order code exists anywhere.
+- **Alternatives:** a separate plan approval for each milestone.
+- **Reason:** the user wants to test with paper money soon. Gates still protect correctness, especially M3's zero-false-positive gate.

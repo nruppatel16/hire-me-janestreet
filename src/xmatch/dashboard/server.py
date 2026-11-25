@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from xmatch.ai.matching import retrieval_version
 from xmatch.config import Settings, load_settings
 from xmatch.db import connect
 
@@ -82,16 +83,38 @@ class Api:
                         " ORDER BY run_id DESC LIMIT 1", (p,)).fetchone(),
                 }
             later = c.execute("""
-                SELECT (SELECT count(*) FROM candidate_pairs) AS candidate_pairs,
+                SELECT (SELECT count(*) FROM candidate_pairs WHERE retrieval_version = %(v)s) AS candidate_pairs,
                        (SELECT count(*) FROM verdicts WHERE verdict = 'equivalent' AND direction_safe) AS confirmed,
-                       (SELECT count(*) FROM arb_observations) AS arbs""").fetchone()
+                       (SELECT count(*) FROM arb_observations) AS arbs""", {"v": retrieval_version(self.s)}).fetchone()
+            emb = c.execute("""
+                SELECT (SELECT count(*) FROM eval_cases WHERE label = 'must_confirm') AS must_confirm,
+                       (SELECT count(*) FROM eval_cases WHERE label = 'must_reject') AS must_reject,
+                       (SELECT coalesce(sum(cost_usd), 0) FROM llm_calls WHERE status = 'ok') AS spend_usd""").fetchone()
             now = c.execute("SELECT now() AS now").fetchone()["now"]
         return {
             "now": now,
             "volume_gate_usd": self.s.volume_gate.min_volume_usd,
             "platforms": {p: {**(by_platform.get(p) or {}), **last[p]} for p in PLATFORMS},
             "later": later,
+            "eval": emb,
+            "retrieval": {"version": retrieval_version(self.s), "top_k": self.s.retrieval.top_k,
+                          "floor": self.s.retrieval.similarity_floor, "model": self.s.embeddings.model},
         }
+
+    def pairs(self, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        v = retrieval_version(self.s)
+        with self._conn() as c:
+            total = c.execute("SELECT count(*) AS n FROM candidate_pairs WHERE retrieval_version = %s", (v,)).fetchone()["n"]
+            rows = c.execute("""
+                SELECT c.pair_id, c.similarity, c.rank_k2p, c.rank_p2k,
+                       k.id AS k_mid, k.native_id AS k_id, k.title AS k_title, k.close_time_utc AS k_close,
+                       p.id AS p_mid, p.native_id AS p_id, p.title AS p_title, p.close_time_utc AS p_close,
+                       (SELECT e.label FROM eval_cases e WHERE e.kalshi_native_id = k.native_id
+                          AND e.polymarket_native_id = p.native_id ORDER BY e.id DESC LIMIT 1) AS label
+                FROM candidate_pairs c JOIN markets k ON k.id = c.kalshi_id JOIN markets p ON p.id = c.polymarket_id
+                WHERE c.retrieval_version = %s ORDER BY c.similarity DESC LIMIT %s OFFSET %s""",
+                (v, max(1, min(limit, 200)), max(0, offset))).fetchall()
+        return {"total": total, "rows": rows}
 
     def volume_histogram(self) -> list[dict]:
         with self._conn() as c:
@@ -193,6 +216,8 @@ def make_handler(api: Api):
                     return self._json(api.runs())
                 if m := re.fullmatch(r"/api/runs/(\d+)/errors", url.path):
                     return self._json(api.run_errors(int(m.group(1))))
+                if url.path == "/api/pairs":
+                    return self._json(api.pairs(limit=int(qs.get("limit", 50)), offset=int(qs.get("offset", 0))))
                 if url.path == "/api/markets":
                     return self._json(api.markets(
                         q=qs.get("q", ""), platform=qs.get("platform", ""), filt=qs.get("filter", "gated"),

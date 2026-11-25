@@ -160,6 +160,13 @@ footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--rule);
   </section>
 
   <section>
+    <h2>Candidate pairs <small id="pairs-note"></small></h2>
+    <div class="scroll"><table id="pairs"></table></div>
+    <div class="pager"><span id="pairs-range"></span>
+      <span><button class="btn" id="pprev">Previous</button> <button class="btn" id="pnext">Next</button></span></div>
+  </section>
+
+  <section>
     <h2>Ingest runs <small>click a run with errors to see them</small></h2>
     <div class="scroll"><table id="runs"></table></div>
   </section>
@@ -240,6 +247,7 @@ async function get(url) {
 let gateUsd = 10000;
 async function loadSummary() {
   const s = await get("/api/summary");
+  lastSummary = s;
   gateUsd = s.volume_gate_usd;
   $("#gate-note").textContent = `volume gate ${fmtUsd(gateUsd)} cumulative (config)`;
   $("#fresh").innerHTML = ["kalshi", "polymarket"].map((p) => {
@@ -269,7 +277,7 @@ async function loadSummary() {
       + `<td class="note hide-sm">${esc(note)}</td></tr>`;
   }
   const later = [
-    ["Candidate pairs", L.candidate_pairs, "Milestone 2", "Embedding nearest neighbours above the similarity floor"],
+    ["Candidate pairs", L.candidate_pairs, "Milestone 2", "Nearest neighbours both ways, above the similarity floor"],
     ["Confirmed equivalent", L.confirmed, "Milestone 3", "LLM verdict equivalent, direction safe, evidence on both sides"],
     ["Live arbitrage", L.arbs, "Milestone 4", "Both legs under $1 after fees"],
   ];
@@ -305,6 +313,32 @@ async function loadVolume() {
     return `<div class="hist"><h3>${PNAME[p]} <span class="muted">· ${fmtN(passing)} of ${fmtN(total)} pass</span></h3>${svg}</div>`;
   }).join("");
 }
+
+/* ---------- candidate pairs ---------- */
+const pst = { offset: 0, limit: 25 };
+let lastSummary = null;
+async function loadPairs() {
+  const { total, rows } = await get(`/api/pairs?offset=${pst.offset}&limit=${pst.limit}`);
+  const s = lastSummary;
+  if (s) $("#pairs-note").textContent = `${s.retrieval.model} · top ${s.retrieval.top_k} both ways · floor ${s.retrieval.floor}`
+    + ` · labeled ${s.eval.must_confirm} confirm / ${s.eval.must_reject} reject`;
+  $("#pairs-range").textContent = total ? `${fmtN(pst.offset + 1)}–${fmtN(pst.offset + rows.length)} of ${fmtN(total)}` : "";
+  $("#pprev").disabled = pst.offset === 0; $("#pnext").disabled = pst.offset + rows.length >= total;
+  if (!rows.length) { $("#pairs").innerHTML = `<tr><td class="empty">No candidate pairs yet. Run <span class="mono">xmatch match</span>.</td></tr>`; return; }
+  const day = (iso) => iso ? iso.slice(0, 10) : "—";
+  $("#pairs").innerHTML = `<tr><th class="n">Sim</th><th>Kalshi</th><th>Polymarket</th><th class="hide-sm">Closes K / P</th><th>Label</th></tr>`
+    + rows.map((r) => {
+      const dateGap = r.k_close && r.p_close && day(r.k_close) !== day(r.p_close);
+      const lab = r.label === "must_confirm" ? `<span class="ok">confirm</span>` : r.label === "must_reject" ? `<span class="bad">reject</span>` : `<span class="faint">—</span>`;
+      return `<tr><td class="n mono">${r.similarity.toFixed(3)}</td>
+        <td class="mt"><div title="${esc(r.k_title)}">${esc(r.k_title)}</div><div class="muted mono" style="font-size:11.5px">${esc(r.k_id)}</div></td>
+        <td class="mt"><div title="${esc(r.p_title)}">${esc(r.p_title)}</div><div class="muted mono" style="font-size:11.5px">${esc(r.p_id)}</div></td>
+        <td class="hide-sm ${dateGap ? "warn" : "muted"}" style="white-space:nowrap" title="${dateGap ? "close dates differ" : ""}">${day(r.k_close)} / ${day(r.p_close)}</td>
+        <td>${lab}</td></tr>`;
+    }).join("");
+}
+$("#pprev").onclick = () => { pst.offset = Math.max(0, pst.offset - pst.limit); loadPairs(); };
+$("#pnext").onclick = () => { pst.offset += pst.limit; loadPairs(); };
 
 /* ---------- holdouts ---------- */
 async function loadHoldouts() {
@@ -404,7 +438,7 @@ function showError(e) {
   $("#fresh").innerHTML = `<span class="bad">Can't reach the store: ${esc(e.message)}. Is Postgres running? (scripts/db.sh start)</span>`;
 }
 async function refreshAll() {
-  try { await loadSummary(); await Promise.all([loadVolume(), loadHoldouts(), loadRuns(), loadMarkets()]); }
+  try { await loadSummary(); await Promise.all([loadVolume(), loadHoldouts(), loadRuns(), loadMarkets(), loadPairs()]); }
   catch (e) { showError(e); }
 }
 refreshAll();

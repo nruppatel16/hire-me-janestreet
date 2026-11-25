@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import signal
 import logging
 import sys
 
@@ -70,13 +71,60 @@ def cmd_match(args) -> int:
     return cmd_retrieve(args)
 
 
+def cmd_label(args) -> int:
+    from xmatch.ai.labeling import label_session, next_pairs
+    from xmatch.db import connect
+    s = load_settings()
+    with connect(s.database_url) as conn:
+        pairs = next_pairs(conn, s, args.n, args.min_sim, args.max_sim)
+        if not pairs:
+            print("no unlabeled candidate pairs in that similarity range (run `xmatch match` first?)")
+            return 0
+        try:
+            counts = label_session(conn, s, pairs, input, print, s.eval.holdout_size, s.eval.holdout_every)
+        except (KeyboardInterrupt, EOFError):
+            print("\nstopped; everything labeled so far is saved")
+            return 0
+    print(f"\nlabeled: {counts}")
+    return 0
+
+
+def cmd_recall(args) -> int:
+    from xmatch.ai.recall import recall_curve
+    from xmatch.db import connect
+    s = load_settings()
+    with connect(s.database_url) as conn:
+        res = recall_curve(conn, s)
+    n = res.points[0].must_confirm if res.points else 0
+    print(f"dev must_confirm pairs: {n} (missing a current embedding: {len(res.missing)}), K={s.retrieval.top_k}")
+    print(f"{'floor':>6} {'recall':>7} {'found':>6} {'candidates':>11}")
+    for p in res.points:
+        mark = "  <- configured" if abs(p.floor - s.retrieval.similarity_floor) < 1e-9 else ""
+        print(f"{p.floor:>6.3f} {p.recall:>7.1%} {p.found:>6} {p.candidates:>11,}{mark}")
+    ok = [p for p in res.points if p.recall >= s.gate2.recall_target]
+    if n and ok:
+        best = max(ok, key=lambda p: p.floor)
+        print(f"highest floor meeting {s.gate2.recall_target:.0%} recall: {best.floor:.3f} "
+              f"({best.candidates:,} candidates). Set retrieval.similarity_floor to adopt it.")
+    for pp in sorted(res.per_pair, key=lambda x: x["similarity"])[:5]:
+        print(f"  hardest: {pp['pair_ref']} sim={pp['similarity']:.3f} ranks K->P {pp['rank_k2p']} P->K {pp['rank_p2k']}")
+    return 0
+
+
 def cmd_dashboard(args) -> int:
     from xmatch.dashboard.server import serve
     serve(port=args.port)
     return 0
 
 
+def _sigterm_as_interrupt(signum, frame):
+    # Schedulers stop jobs with SIGTERM. Turning it into KeyboardInterrupt lets every job's existing
+    # handler roll back the open transaction and mark its run 'failed' instead of leaving it 'running'.
+    raise KeyboardInterrupt(f"signal {signum}")
+
+
 def main(argv=None) -> int:
+    signal.signal(signal.SIGTERM, _sigterm_as_interrupt)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     ap = argparse.ArgumentParser(prog="xmatch", description=__doc__)
@@ -89,6 +137,12 @@ def main(argv=None) -> int:
     ing.set_defaults(fn=cmd_ingest)
     sub.add_parser("embed", help="embed new/changed eligible markets").set_defaults(fn=cmd_embed)
     sub.add_parser("retrieve", help="recompute candidate pairs").set_defaults(fn=cmd_retrieve)
+    lb = sub.add_parser("label", help="hand-label candidate pairs into the eval set")
+    lb.add_argument("--n", type=int, default=20)
+    lb.add_argument("--min-sim", type=float, default=0.0)
+    lb.add_argument("--max-sim", type=float, default=1.0)
+    lb.set_defaults(fn=cmd_label)
+    sub.add_parser("recall", help="recall vs candidate count, to choose the similarity floor").set_defaults(fn=cmd_recall)
     mt = sub.add_parser("match", help="slow job: ingest, embed, retrieve")
     mt.add_argument("--skip-ingest", action="store_true")
     mt.set_defaults(fn=cmd_match)

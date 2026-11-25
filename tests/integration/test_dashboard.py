@@ -68,3 +68,9 @@ def test_http_endpoints(seeded):
         assert e.value.code == 404
     finally:
         httpd.shutdown()
+
+
+def test_pairs_endpoint_empty_then_populated(seeded):
+    api = Api(seeded)
+    assert api.pairs() == {"total": 0, "rows": []}
+    assert api.summary()["retrieval"]["model"] == seeded.embeddings.model

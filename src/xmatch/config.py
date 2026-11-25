@@ -75,6 +75,16 @@ class RetrievalCfg(BaseModel):
     block_rows: int
 
 
+class EvalCfg(BaseModel):
+    holdout_size: int
+    holdout_every: int
+
+
+class Gate2Cfg(BaseModel):
+    recall_target: float
+    min_must_confirm: int
+
+
 class Settings(BaseModel):
     http: HttpCfg
     kalshi: KalshiCfg
@@ -85,6 +95,8 @@ class Settings(BaseModel):
     providers: dict[str, ProviderCfg]
     embeddings: EmbeddingsCfg
     retrieval: RetrievalCfg
+    eval: EvalCfg
+    gate2: Gate2Cfg
     database_url: str
 
     def api_key(self, provider: str) -> str:
